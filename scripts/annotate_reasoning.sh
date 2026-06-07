@@ -7,23 +7,28 @@ CONFIG="${CONFIG:-$PROJECT_ROOT/configs/reasoning/openai_compatible_multi_vlm.ex
 OUT_ROOT="${OUT_ROOT:-$PROJECT_ROOT/data/reasoning}"
 LIMIT="${LIMIT:-0}"
 START="${START:-0}"
+SPLIT="${SPLIT:-train}"
 
 mkdir -p "$OUT_ROOT"
 
 annotate_stage() {
   local stage="$1"
   local max_frames="$2"
+  local output="$OUT_ROOT/reasoning_stage${stage}.jsonl"
+  if [[ "$SPLIT" != "train" ]]; then
+    output="$OUT_ROOT/reasoning_stage${stage}_${SPLIT}.jsonl"
+  fi
   local extra_args=()
   if [[ "$stage" == "1" ]]; then
     extra_args+=(--tess-stage1-index "$DATA_ROOT/tess_stage1_parquet_index.json")
   fi
   python -m training.reasoning_annotation annotate \
-    --manifest "$DATA_ROOT/train_stage${stage}.jsonl" \
+    --manifest "$DATA_ROOT/${SPLIT}_stage${stage}.jsonl" \
     --image-root "$DATA_ROOT" \
     --stage "$stage" \
     --max-frames "$max_frames" \
     --config "$CONFIG" \
-    --output "$OUT_ROOT/reasoning_stage${stage}.jsonl" \
+    --output "$output" \
     --start "$START" \
     --limit "$LIMIT" \
     --resume \

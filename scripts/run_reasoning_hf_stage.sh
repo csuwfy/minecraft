@@ -5,6 +5,7 @@ PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"
 DATA_ROOT="${DATA_ROOT:-$PROJECT_ROOT/data/minecraft_full}"
 OUT_ROOT="${OUT_ROOT:-$PROJECT_ROOT/data/reasoning}"
 STAGE="${STAGE:-3}"
+SPLIT="${SPLIT:-train}"
 LIMIT="${LIMIT:-1000}"
 START="${START:-0}"
 MODEL="${MODEL:-Qwen/Qwen2.5-VL-3B-Instruct}"
@@ -21,13 +22,13 @@ if [[ "$STAGE" == "1" ]]; then
 fi
 
 python -m training.reasoning_hf_teacher \
-  --manifest "$DATA_ROOT/train_stage${STAGE}.jsonl" \
+  --manifest "$DATA_ROOT/${SPLIT}_stage${STAGE}.jsonl" \
   --image-root "$DATA_ROOT" \
   --stage "$STAGE" \
   --max-frames "$MAX_FRAMES" \
   --model "$MODEL" \
   --torch-dtype "$TORCH_DTYPE" \
-  --output "$OUT_ROOT/reasoning_stage${STAGE}_${MODEL_SAFE}.jsonl" \
+  --output "$OUT_ROOT/reasoning_stage${STAGE}_${SPLIT}_${MODEL_SAFE}.jsonl" \
   --start "$START" \
   --limit "$LIMIT" \
   --resume \

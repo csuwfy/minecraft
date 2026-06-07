@@ -19,6 +19,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="Only touch the first N records for a quick check.")
     parser.add_argument("--tess-stage1-index", default=None, help="Parquet index used by TESS Stage1 frame references.")
     parser.add_argument("--load-images", action="store_true", help="Open every frame in the checked records.")
+    parser.add_argument("--require-reasoning", action="store_true", help="Reject records with empty AoT reasoning.")
     args = parser.parse_args()
 
     dataset = MinecraftVLADataset(
@@ -27,6 +28,7 @@ def main() -> None:
         stage=args.stage,
         max_frames=args.max_frames,
         tess_stage1_index=args.tess_stage1_index,
+        require_reasoning=args.require_reasoning,
     )
     print(f"records={len(dataset)}")
     touch_count = min(args.limit or args.preview, len(dataset))

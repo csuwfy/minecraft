@@ -6,6 +6,7 @@ DATA_ROOT="${DATA_ROOT:-$PROJECT_ROOT/data/minecraft_full}"
 OUT_ROOT="${OUT_ROOT:-$PROJECT_ROOT/data/reasoning}"
 LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/logs}"
 STAGE="${STAGE:-3}"
+SPLIT="${SPLIT:-train}"
 MODEL="${MODEL:-Qwen/Qwen2.5-VL-7B-Instruct}"
 TORCH_DTYPE="${TORCH_DTYPE:-bfloat16}"
 TOTAL_RECORDS="${TOTAL_RECORDS:?Set TOTAL_RECORDS to the manifest line count.}"
@@ -40,16 +41,16 @@ for ((start=0; start<TOTAL_RECORDS; start+=CHUNK_SIZE)); do
     limit="$remaining"
   fi
   chunk_id=$(printf "%09d" "$start")
-  output="$OUT_ROOT/reasoning_stage${STAGE}_${MODEL_SAFE}_start${chunk_id}_limit${limit}.jsonl"
-  script="$OUT_ROOT/pbs_reasoning_stage${STAGE}_${MODEL_SAFE}_start${chunk_id}.pbs"
+  output="$OUT_ROOT/reasoning_stage${STAGE}_${SPLIT}_${MODEL_SAFE}_start${chunk_id}_limit${limit}.jsonl"
+  script="$OUT_ROOT/pbs_reasoning_stage${STAGE}_${SPLIT}_${MODEL_SAFE}_start${chunk_id}.pbs"
   cat > "$script" <<PBS
 #!/bin/bash
-#PBS -N rsn_s${STAGE}_${chunk_id}
+#PBS -N rsn_s${STAGE}_${SPLIT}_${chunk_id}
 #PBS -l select=1:ncpus=${NCPUS}:mem=${MEM}:ngpus=1:gpu_type=${GPU_TYPE}
 #PBS -l walltime=${WALLTIME}
 #PBS -q ${QUEUE}
-#PBS -o ${LOG_ROOT}/reasoning_stage${STAGE}_${MODEL_SAFE}_start${chunk_id}.log
-#PBS -e ${LOG_ROOT}/reasoning_stage${STAGE}_${MODEL_SAFE}_start${chunk_id}.err
+#PBS -o ${LOG_ROOT}/reasoning_stage${STAGE}_${SPLIT}_${MODEL_SAFE}_start${chunk_id}.log
+#PBS -e ${LOG_ROOT}/reasoning_stage${STAGE}_${SPLIT}_${MODEL_SAFE}_start${chunk_id}.err
 set -euo pipefail
 cd "$PROJECT_ROOT"
 export HF_HOME="\${HF_HOME:-$PROJECT_ROOT/cache/huggingface}"
@@ -57,7 +58,7 @@ export HF_HUB_ENABLE_HF_TRANSFER=1
 export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 python -m training.reasoning_hf_teacher \\
-  --manifest "$DATA_ROOT/train_stage${STAGE}.jsonl" \\
+  --manifest "$DATA_ROOT/${SPLIT}_stage${STAGE}.jsonl" \\
   --image-root "$DATA_ROOT" \\
   --stage "$STAGE" \\
   --max-frames "$MAX_FRAMES" \\
@@ -79,4 +80,4 @@ PBS
   submitted=$((submitted + 1))
 done
 
-echo "submitted_reasoning_chunks=$submitted model=$MODEL stage=$STAGE chunk_size=$CHUNK_SIZE"
+echo "submitted_reasoning_chunks=$submitted model=$MODEL stage=$STAGE split=$SPLIT chunk_size=$CHUNK_SIZE"

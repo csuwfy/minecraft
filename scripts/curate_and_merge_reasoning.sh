@@ -19,6 +19,9 @@ read -r -a REASONING_FILES <<< "$REASONING_JSONL"
 CURATED="$OUT_ROOT/reasoning_stage${STAGE}_curated.jsonl"
 REJECTED="$OUT_ROOT/reasoning_stage${STAGE}_rejected.jsonl"
 MERGED="$MERGED_ROOT/train_stage${STAGE}.jsonl"
+VAL_CURATED="$OUT_ROOT/reasoning_stage${STAGE}_val_curated.jsonl"
+VAL_REJECTED="$OUT_ROOT/reasoning_stage${STAGE}_val_rejected.jsonl"
+VAL_MERGED="$MERGED_ROOT/val_stage${STAGE}.jsonl"
 
 python -m training.reasoning_annotation curate \
   --reasoning-jsonl "${REASONING_FILES[@]}" \
@@ -36,10 +39,32 @@ python -m training.reasoning_annotation merge \
   --output "$MERGED" \
   --require-reasoning
 
-if [[ -e "$DATA_ROOT/val_stage${STAGE}.jsonl" ]]; then
-  cp "$DATA_ROOT/val_stage${STAGE}.jsonl" "$MERGED_ROOT/val_stage${STAGE}.jsonl"
+if [[ "${VAL_REASONING_JSONL:-}" != "" ]]; then
+  read -r -a VAL_REASONING_FILES <<< "$VAL_REASONING_JSONL"
+  python -m training.reasoning_annotation curate \
+    --reasoning-jsonl "${VAL_REASONING_FILES[@]}" \
+    --output "$VAL_CURATED" \
+    --rejected-output "$VAL_REJECTED" \
+    --preferred-model Qwen2.5-VL-7B-Instruct \
+    --preferred-model Qwen2.5-VL-3B-Instruct \
+    --preferred-model InternVL3-2B \
+    --preferred-model SmolVLM2-2.2B-Instruct \
+    --examples 10
+
+  python -m training.reasoning_annotation merge \
+    --manifest "$DATA_ROOT/val_stage${STAGE}.jsonl" \
+    --reasoning-jsonl "$VAL_CURATED" \
+    --output "$VAL_MERGED" \
+    --require-reasoning
+else
+  echo "val_manifest_not_written_without_VAL_REASONING_JSONL=$MERGED_ROOT/val_stage${STAGE}.jsonl" >&2
 fi
 
 echo "curated_reasoning=$CURATED"
 echo "rejected_reasoning=$REJECTED"
 echo "merged_manifest=$MERGED"
+if [[ "${VAL_REASONING_JSONL:-}" != "" ]]; then
+  echo "val_curated_reasoning=$VAL_CURATED"
+  echo "val_rejected_reasoning=$VAL_REJECTED"
+  echo "val_merged_manifest=$VAL_MERGED"
+fi

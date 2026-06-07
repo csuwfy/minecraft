@@ -30,7 +30,7 @@ DEFAULT_VISION_PREFIXES = ["visual", "vision_tower", "vision_model", "visual_mod
 
 
 def load_config(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, "r", encoding="utf-8-sig") as handle:
         return json.load(handle)
 
 
@@ -155,6 +155,28 @@ def build_model(config: Dict[str, Any]):
     return model, processor
 
 
+def build_dataset(data_cfg: Dict[str, Any], manifest_key: str) -> MinecraftVLADataset:
+    return MinecraftVLADataset(
+        manifest_path=data_cfg[manifest_key],
+        image_root=data_cfg.get("image_root"),
+        stage=data_cfg.get("stage", 3),
+        max_frames=data_cfg.get("max_frames", 3),
+        system_prompt=data_cfg.get("system_prompt"),
+        user_prompt=data_cfg.get("user_prompt"),
+        tess_stage1_index=data_cfg.get("tess_stage1_index"),
+        require_reasoning=bool(data_cfg.get("require_reasoning", False)),
+    )
+
+
+def preflight_dataset(dataset: torch.utils.data.Dataset, name: str) -> None:
+    if len(dataset) == 0:
+        raise ValueError(f"{name} dataset is empty.")
+    try:
+        dataset[0]
+    except Exception as exc:
+        raise ValueError(f"{name} dataset preflight failed before model loading.") from exc
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a Minecraft VLA model with CombatVLA-style AoT SFT.")
     parser.add_argument("--config", required=True, help="Path to JSON training config.")
@@ -169,32 +191,21 @@ def main() -> None:
     config = load_config(args.config)
     for override in args.set:
         apply_override(config, override)
-    model, processor = build_model(config)
 
     data_cfg = config["data"]
-    train_dataset = MinecraftVLADataset(
-        manifest_path=data_cfg["train_manifest"],
-        image_root=data_cfg.get("image_root"),
-        stage=data_cfg.get("stage", 3),
-        max_frames=data_cfg.get("max_frames", 3),
-        system_prompt=data_cfg.get("system_prompt"),
-        user_prompt=data_cfg.get("user_prompt"),
-        tess_stage1_index=data_cfg.get("tess_stage1_index"),
-    )
+    train_dataset = build_dataset(data_cfg, "train_manifest")
     eval_dataset = None
     if data_cfg.get("eval_manifest"):
-        eval_dataset = MinecraftVLADataset(
-            manifest_path=data_cfg["eval_manifest"],
-            image_root=data_cfg.get("image_root"),
-            stage=data_cfg.get("stage", 3),
-            max_frames=data_cfg.get("max_frames", 3),
-            system_prompt=data_cfg.get("system_prompt"),
-            user_prompt=data_cfg.get("user_prompt"),
-            tess_stage1_index=data_cfg.get("tess_stage1_index"),
-        )
+        eval_dataset = build_dataset(data_cfg, "eval_manifest")
         eval_max_samples = int(data_cfg.get("eval_max_samples") or 0)
         if eval_max_samples > 0 and eval_max_samples < len(eval_dataset):
             eval_dataset = Subset(eval_dataset, range(eval_max_samples))
+
+    preflight_dataset(train_dataset, "train")
+    if eval_dataset is not None:
+        preflight_dataset(eval_dataset, "eval")
+
+    model, processor = build_model(config)
 
     train_cfg = config["training"]
     output_dir = Path(train_cfg.get("output_dir", "outputs/minecraft-vla"))

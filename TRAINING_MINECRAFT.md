@@ -243,14 +243,17 @@ pass it with `--reasoning-source jsonl --reasoning-jsonl <file>`.
 
 The public Minecraft sources used here do not include the paper's AoT
 `Explanation` labels. To add paper-like reasoning, generate a separate teacher
-artifact first, then merge it into the manifests:
+artifact first, then merge it into the manifests. The converted
+`data/minecraft_full/*.jsonl` files are action-aligned source manifests only;
+they are suitable for converter/loss smoke tests or explicit action-only
+ablations, but not for paper-style AoT SFT.
 
 ```bash
 CONFIG=configs/reasoning/openai_compatible_multi_vlm.example.json \
 LIMIT=1000 \
 bash scripts/annotate_reasoning.sh
 
-bash scripts/merge_reasoning.sh
+SPLIT=val LIMIT=1000 bash scripts/annotate_reasoning.sh
 ```
 
 `training.reasoning_annotation annotate` reads frames, task text, and the gold
@@ -277,6 +280,7 @@ audit.
 ```bash
 STAGE=3 \
 REASONING_JSONL="data/reasoning/reasoning_stage3_Qwen_Qwen2.5-VL-7B-Instruct_limit200_start0.jsonl data/reasoning/reasoning_stage3_Qwen_Qwen2.5-VL-3B-Instruct_limit200_start0.jsonl" \
+VAL_REASONING_JSONL="data/reasoning/reasoning_stage3_val_Qwen_Qwen2.5-VL-7B-Instruct_limit200_start0.jsonl data/reasoning/reasoning_stage3_val_Qwen_Qwen2.5-VL-3B-Instruct_limit200_start0.jsonl" \
 bash scripts/curate_and_merge_reasoning.sh
 ```
 
@@ -286,6 +290,13 @@ Use the curated manifest for reasoning SFT experiments:
 "train_manifest": "data/minecraft_reasoning/train_stage3.jsonl",
 "eval_manifest": "data/minecraft_reasoning/val_stage3.jsonl"
 ```
+
+The paper-style training configs already point to `data/minecraft_reasoning/*`
+and set `"require_reasoning": true`. `training.train_sft` preflights the first
+train/eval sample before loading the model and the dataset rejects any later row
+with empty reasoning. If the reasoning manifests are missing or incomplete, the
+training job should fail early instead of silently running an action-only
+experiment.
 
 Do not treat teacher reasoning as the paper's original human AoT labels. Keep
 the raw teacher JSONL, curated JSONL, rejected JSONL, and merge report with the
@@ -354,6 +365,15 @@ python -m training.validate_manifest \
   --max-frames 4 \
   --limit 8 \
   --load-images
+
+python -m training.validate_manifest \
+  --manifest data/minecraft_reasoning/train_stage3.jsonl \
+  --image-root data/minecraft_full \
+  --stage 3 \
+  --max-frames 4 \
+  --limit 8 \
+  --load-images \
+  --require-reasoning
 ```
 
 ## Train Three Stages
@@ -374,6 +394,18 @@ Run:
 
 ```bash
 bash scripts/train_three_stage.sh
+```
+
+Do not run `scripts/train_three_stage.sh` until all three reasoning manifests
+exist:
+
+```text
+data/minecraft_reasoning/train_stage1.jsonl
+data/minecraft_reasoning/val_stage1.jsonl
+data/minecraft_reasoning/train_stage2.jsonl
+data/minecraft_reasoning/val_stage2.jsonl
+data/minecraft_reasoning/train_stage3.jsonl
+data/minecraft_reasoning/val_stage3.jsonl
 ```
 
 If a single L20 is too tight for Stage 1's 20-frame full-parameter run, keep the

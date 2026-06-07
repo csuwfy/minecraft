@@ -1,8 +1,9 @@
 """Action-of-Thought formatting helpers.
 
-The CombatVLA paper trains a vision-language-action model to emit a short
-action program followed by a truncated reasoning marker. This module keeps the
-format explicit so datasets can be generated and audited before training.
+The CombatVLA paper uses stage-specific Action-of-Thought targets: Stage 1/2
+place reasoning before the action JSON, while Stage 3 places action JSON before
+the truncated reasoning marker. This module keeps the format explicit so
+datasets can be generated and audited before training.
 """
 
 from __future__ import annotations
@@ -31,16 +32,16 @@ DEFAULT_USER_PROMPT = (
 STAGE_USER_PROMPTS = {
     1: (
         "Given the coarse Minecraft frame sequence, predict the next action chunk. "
-        f"Return optional concise reasoning followed by a compact JSON object using schema {ACTION_SCHEMA_VERSION}."
+        f"Return concise reasoning followed by a compact JSON object using schema {ACTION_SCHEMA_VERSION}."
     ),
     2: (
         "Given the recent Minecraft frames and task, predict the next aligned action. "
-        f"Return optional concise reasoning followed by a compact JSON object using schema {ACTION_SCHEMA_VERSION}."
+        f"Return concise reasoning followed by a compact JSON object using schema {ACTION_SCHEMA_VERSION}."
     ),
     3: (
         "Given the recent Minecraft frames and task, predict the next aligned action. "
         f"First return a compact JSON object using schema {ACTION_SCHEMA_VERSION}, then write {TRUNC_TOKEN} "
-        "and optional concise reasoning."
+        "and concise reasoning."
     ),
 }
 

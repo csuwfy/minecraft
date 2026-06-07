@@ -36,6 +36,7 @@ class MinecraftVLADataset(Dataset):
         system_prompt: Optional[str] = None,
         user_prompt: Optional[str] = None,
         tess_stage1_index: Optional[str] = None,
+        require_reasoning: bool = False,
     ) -> None:
         self.manifest_path = Path(manifest_path)
         self.image_root = Path(image_root) if image_root else self.manifest_path.parent
@@ -44,6 +45,7 @@ class MinecraftVLADataset(Dataset):
         self.system_prompt = system_prompt
         self.user_prompt = user_prompt
         self.tess_stage1_index = tess_stage1_index
+        self.require_reasoning = require_reasoning
         self._offsets = self._load_or_build_offsets()
 
         if not self._offsets:
@@ -126,6 +128,14 @@ class MinecraftVLADataset(Dataset):
             raise ValueError(f"Record {line_number} has no frames.")
         if not example.actions:
             raise ValueError(f"Record {line_number} has no actions.")
+        if self.require_reasoning and not example.reasoning.strip():
+            metadata = example.metadata or {}
+            source = metadata.get("source") if isinstance(metadata, Mapping) else None
+            raise ValueError(
+                f"Record {line_number} in {self.manifest_path} has empty reasoning. "
+                "Paper-style AoT training requires non-empty reasoning; generate and merge "
+                f"teacher/human reasoning first. source={source!r}"
+            )
 
         frames = [self._resolve_image_path(path) for path in example.frames[: self.max_frames]]
         normalized = {
