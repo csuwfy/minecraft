@@ -42,11 +42,15 @@ fi
 CHUNK_COUNT=$(( (TOTAL_RECORDS + CHUNK_SIZE - 1) / CHUNK_SIZE ))
 LAST_INDEX=$(( CHUNK_COUNT - 1 ))
 SCRIPT="$OUT_ROOT/pbs_reasoning_stage${STAGE}_${SPLIT}_${MODEL_SAFE}_array.pbs"
+ARRAY_DIRECTIVE=""
+if [[ "$CHUNK_COUNT" -gt 1 ]]; then
+  ARRAY_DIRECTIVE="#PBS -J 0-${LAST_INDEX}%${MAX_CONCURRENT}"
+fi
 
 cat > "$SCRIPT" <<PBS
 #!/bin/bash
 #PBS -N rsn_s${STAGE}_${SPLIT}_${MODEL_SAFE}
-#PBS -J 0-${LAST_INDEX}%${MAX_CONCURRENT}
+$ARRAY_DIRECTIVE
 #PBS -l select=1:ncpus=${NCPUS}:mem=${MEM}:ngpus=1:gpu_type=${GPU_TYPE}
 #PBS -l walltime=${WALLTIME}
 #PBS -q ${QUEUE}
@@ -59,7 +63,7 @@ export HF_HUB_ENABLE_HF_TRANSFER=1
 export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-index="\${PBS_ARRAY_INDEX:?PBS_ARRAY_INDEX is required.}"
+index="\${PBS_ARRAY_INDEX:-0}"
 start=\$((index * ${CHUNK_SIZE}))
 remaining=\$(( ${TOTAL_RECORDS} - start ))
 if [[ "\$remaining" -le 0 ]]; then
