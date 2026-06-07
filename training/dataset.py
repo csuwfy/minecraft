@@ -6,12 +6,39 @@ import json
 import os
 from array import array
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Mapping, Optional
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Union
 
 from torch.utils.data import Dataset
 
 from training.aot import AOTExample, build_messages
 from training.image_refs import is_tess_stage1_ref
+
+
+def manifest_record_count(manifest_path: Union[str, Path]) -> int:
+    path = Path(manifest_path)
+    cache_path = path.with_name(path.name + ".offsets.u64")
+    meta_path = path.with_name(path.name + ".offsets.json")
+    stat = path.stat()
+    if cache_path.exists() and meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            if (
+                meta.get("path") == str(path.resolve())
+                and meta.get("size") == stat.st_size
+                and meta.get("mtime_ns") == stat.st_mtime_ns
+                and meta.get("format") == "uint64_offsets_v1"
+                and isinstance(meta.get("records"), int)
+            ):
+                return int(meta["records"])
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+
+    count = 0
+    with path.open("rb") as handle:
+        for line in handle:
+            if line.strip():
+                count += 1
+    return count
 
 
 class MinecraftVLADataset(Dataset):

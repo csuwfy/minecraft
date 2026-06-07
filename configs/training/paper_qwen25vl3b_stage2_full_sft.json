@@ -16,11 +16,14 @@
   "data": {
     "train_manifest": "data/minecraft_reasoning/train_stage2.jsonl",
     "eval_manifest": "data/minecraft_reasoning/val_stage2.jsonl",
+    "source_train_manifest": "data/minecraft_full/train_stage2.jsonl",
+    "source_eval_manifest": "data/minecraft_full/val_stage2.jsonl",
     "image_root": "data/minecraft_full",
     "stage": 2,
     "max_frames": 4,
     "max_length": 4096,
     "require_reasoning": true,
+    "require_full_coverage": true,
     "mask_prompt_labels": true
   },
   "training": {

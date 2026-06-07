@@ -21,7 +21,7 @@ from transformers import (
 from transformers.trainer_utils import get_last_checkpoint
 
 from training.collator import VLADataCollator
-from training.dataset import MinecraftVLADataset
+from training.dataset import MinecraftVLADataset, manifest_record_count
 from training.aot import TRUNC_TOKEN
 from training.trainer import ActionWeightedTrainer
 
@@ -177,6 +177,21 @@ def preflight_dataset(dataset: torch.utils.data.Dataset, name: str) -> None:
         raise ValueError(f"{name} dataset preflight failed before model loading.") from exc
 
 
+def require_full_manifest_coverage(data_cfg: Dict[str, Any], split: str, dataset: torch.utils.data.Dataset) -> None:
+    source_key = f"source_{split}_manifest"
+    source_manifest = data_cfg.get(source_key)
+    if not source_manifest:
+        return
+    expected = manifest_record_count(source_manifest)
+    actual = len(dataset)
+    if actual != expected:
+        raise ValueError(
+            f"{split} reasoning manifest is partial: {actual:,} records, "
+            f"but {source_manifest} has {expected:,}. "
+            "Paper-style full-data reproduction requires reasoning coverage for every source record."
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a Minecraft VLA model with CombatVLA-style AoT SFT.")
     parser.add_argument("--config", required=True, help="Path to JSON training config.")
@@ -204,6 +219,10 @@ def main() -> None:
     preflight_dataset(train_dataset, "train")
     if eval_dataset is not None:
         preflight_dataset(eval_dataset, "eval")
+    if data_cfg.get("require_full_coverage", False):
+        require_full_manifest_coverage(data_cfg, "train", train_dataset)
+        if eval_dataset is not None:
+            require_full_manifest_coverage(data_cfg, "eval", eval_dataset)
 
     model, processor = build_model(config)
 

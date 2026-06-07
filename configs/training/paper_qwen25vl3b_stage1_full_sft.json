@@ -16,6 +16,8 @@
   "data": {
     "train_manifest": "data/minecraft_reasoning/train_stage1.jsonl",
     "eval_manifest": "data/minecraft_reasoning/val_stage1.jsonl",
+    "source_train_manifest": "data/minecraft_full/train_stage1.jsonl",
+    "source_eval_manifest": "data/minecraft_full/val_stage1.jsonl",
     "image_root": "data/minecraft_full",
     "tess_stage1_index": "data/minecraft_full/tess_stage1_parquet_index.json",
     "stage": 1,
@@ -23,6 +25,7 @@
     "max_length": 8192,
     "eval_max_samples": 128,
     "require_reasoning": true,
+    "require_full_coverage": true,
     "mask_prompt_labels": true
   },
   "training": {

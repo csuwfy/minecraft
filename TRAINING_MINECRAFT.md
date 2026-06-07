@@ -296,7 +296,9 @@ and set `"require_reasoning": true`. `training.train_sft` preflights the first
 train/eval sample before loading the model and the dataset rejects any later row
 with empty reasoning. If the reasoning manifests are missing or incomplete, the
 training job should fail early instead of silently running an action-only
-experiment.
+experiment. The same configs also set `"require_full_coverage": true` and record
+the original `data/minecraft_full/*` source manifests, so a small teacher sample
+cannot be mistaken for a full-data paper reproduction.
 
 Do not treat teacher reasoning as the paper's original human AoT labels. Keep
 the raw teacher JSONL, curated JSONL, rejected JSONL, and merge report with the
