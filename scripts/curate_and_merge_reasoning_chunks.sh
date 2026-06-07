@@ -8,6 +8,13 @@ MERGED_ROOT="${MERGED_ROOT:-$PROJECT_ROOT/data/minecraft_reasoning}"
 STAGE="${STAGE:?Set STAGE to 1, 2, or 3.}"
 SPLIT="${SPLIT:-train}"
 MODEL_GLOBS="${MODEL_GLOBS:-Qwen_Qwen2.5-VL-7B-Instruct Qwen_Qwen2.5-VL-3B-Instruct OpenGVLab_InternVL3-2B HuggingFaceTB_SmolVLM2-2.2B-Instruct}"
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  if [[ -n "${ENV:-}" ]]; then
+    PYTHON_BIN="$ENV/bin/python"
+  else
+    PYTHON_BIN="python"
+  fi
+fi
 
 mkdir -p "$REASONING_ROOT" "$MERGED_ROOT"
 
@@ -39,10 +46,51 @@ if [[ "${#reasoning_files[@]}" -eq 0 ]]; then
   exit 2
 fi
 
+"$PYTHON_BIN" - <<'PY' "$MANIFEST" "${reasoning_files[@]}"
+import re
+import sys
+from pathlib import Path
+
+manifest = Path(sys.argv[1])
+files = [Path(path) for path in sys.argv[2:]]
+pattern = re.compile(r"_start(?P<start>\d+)_limit(?P<limit>\d+)\.jsonl$")
+
+source_count = 0
+with manifest.open("rb") as handle:
+    for line in handle:
+        if line.strip():
+            source_count += 1
+
+ranges = []
+for path in files:
+    match = pattern.search(path.name)
+    if not match:
+        raise SystemExit(f"bad_reasoning_chunk_name={path}")
+    start = int(match.group("start"))
+    limit = int(match.group("limit"))
+    with path.open("rb") as handle:
+        rows = sum(1 for line in handle if line.strip())
+    if rows != limit:
+        raise SystemExit(f"chunk_row_mismatch file={path} limit={limit} rows={rows}")
+    ranges.append((start, start + limit, path))
+
+ranges.sort()
+cursor = 0
+for start, end, path in ranges:
+    if start != cursor:
+        raise SystemExit(f"chunk_coverage_gap expected_start={cursor} actual_start={start} file={path}")
+    cursor = end
+
+if cursor != source_count:
+    raise SystemExit(f"partial_chunk_coverage covered={cursor} source_records={source_count}")
+
+print(f"chunk_coverage_ok files={len(files)} source_records={source_count}")
+PY
+
 printf 'reasoning_chunk_count=%s\n' "${#reasoning_files[@]}"
 printf 'reasoning_chunk=%s\n' "${reasoning_files[@]}"
 
-python -m training.reasoning_annotation curate \
+"$PYTHON_BIN" -m training.reasoning_annotation curate-stream \
   --reasoning-jsonl "${reasoning_files[@]}" \
   --output "$CURATED" \
   --rejected-output "$REJECTED" \
@@ -52,13 +100,13 @@ python -m training.reasoning_annotation curate \
   --preferred-model SmolVLM2-2.2B-Instruct \
   --examples 20
 
-python -m training.reasoning_annotation merge \
+"$PYTHON_BIN" -m training.reasoning_annotation merge-stream \
   --manifest "$MANIFEST" \
   --reasoning-jsonl "$CURATED" \
   --output "$MERGED" \
   --require-reasoning > "$REPORT"
 
-python - <<'PY' "$MANIFEST" "$MERGED" "$REPORT"
+"$PYTHON_BIN" - <<'PY' "$MANIFEST" "$MERGED" "$REPORT"
 import json
 import sys
 from pathlib import Path

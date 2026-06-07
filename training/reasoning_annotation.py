@@ -28,6 +28,7 @@ from training.image_refs import TessStage1ImageStore, load_image
 JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 TAIL_MARKER_RE = re.compile(r"\b(?:confidence|tags?)\s*:", re.IGNORECASE)
 SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]?")
+CHUNK_NAME_RE = re.compile(r"_start(?P<start>\d+)_limit(?P<limit>\d+)\.jsonl$")
 RISKY_TOOL_TERMS = (
     "inventory",
     "hotbar",
@@ -444,6 +445,24 @@ def load_reasoning_candidates(paths: Sequence[Path]) -> Dict[str, List[Mapping[s
     return candidates
 
 
+def chunk_sort_key(path: Path) -> tuple[int, int, str]:
+    match = CHUNK_NAME_RE.search(path.name)
+    if not match:
+        return (10**18, 10**18, path.name)
+    return (int(match.group("start")), int(match.group("limit")), path.name)
+
+
+def iter_jsonl(path: Path) -> Iterable[Dict[str, Any]]:
+    with path.open("r", encoding="utf-8-sig") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid JSON at {path}:{line_number}") from exc
+
+
 def iter_manifest(path: Path) -> Iterable[tuple[int, Dict[str, Any]]]:
     with path.open("r", encoding="utf-8-sig") as handle:
         for line_number, line in enumerate(handle, start=1):
@@ -478,6 +497,92 @@ def merge(args: argparse.Namespace) -> None:
                 continue
             out.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
     print(json.dumps({"total": total, "merged": merged, "output": str(output_path)}, ensure_ascii=False))
+
+
+def merge_stream(args: argparse.Namespace) -> None:
+    """Merge a line-number-sorted curated reasoning stream without loading it."""
+
+    manifest_path = Path(args.manifest)
+    reasoning_path = Path(args.reasoning_jsonl)
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    teacher_iter = iter(iter_jsonl(reasoning_path))
+
+    def next_teacher() -> Optional[Dict[str, Any]]:
+        try:
+            record = next(teacher_iter)
+        except StopIteration:
+            return None
+        if "line_number" not in record:
+            raise ValueError(f"Curated reasoning record is missing line_number in {reasoning_path}")
+        return record
+
+    teacher = next_teacher()
+    total = 0
+    merged = 0
+    missing = 0
+    stale = 0
+    with output_path.open("w", encoding="utf-8") as out:
+        for line_number, record in iter_manifest(manifest_path):
+            total += 1
+            while teacher is not None and int(teacher["line_number"]) < line_number:
+                stale += 1
+                teacher = next_teacher()
+
+            if teacher is None or int(teacher["line_number"]) > line_number:
+                missing += 1
+                if args.require_reasoning:
+                    continue
+                out.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+                continue
+
+            rid = record_id(record, line_number)
+            teacher_rid = str(teacher.get("record_id") or "")
+            if teacher_rid and teacher_rid != rid:
+                raise ValueError(
+                    f"Reasoning/source mismatch at line {line_number}: "
+                    f"source_id={rid!r} teacher_id={teacher_rid!r}"
+                )
+
+            reasoning = str(teacher.get("reasoning") or "").strip()
+            if not reasoning:
+                missing += 1
+                if args.require_reasoning:
+                    teacher = next_teacher()
+                    continue
+            else:
+                record["reasoning"] = reasoning
+                metadata = dict(record.get("metadata") or {})
+                metadata["reasoning_source"] = teacher.get("reasoning_source", "teacher_vlm_curated")
+                metadata["reasoning_record_id"] = rid
+                metadata["reasoning_model"] = teacher.get("selected_model")
+                metadata["reasoning_provider"] = teacher.get("selected_provider")
+                metadata["reasoning_confidence"] = teacher.get("confidence")
+                record["metadata"] = metadata
+                merged += 1
+
+            out.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+            teacher = next_teacher()
+
+    extra = 0
+    while teacher is not None:
+        extra += 1
+        teacher = next_teacher()
+
+    print(
+        json.dumps(
+            {
+                "total": total,
+                "merged": merged,
+                "missing": missing,
+                "stale_reasoning_records": stale,
+                "extra_reasoning_records": extra,
+                "output": str(output_path),
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 def audit(args: argparse.Namespace) -> None:
@@ -652,6 +757,112 @@ def curate(args: argparse.Namespace) -> None:
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
+def curate_stream(args: argparse.Namespace) -> None:
+    """Curate full reasoning chunks in manifest line order without grouping all IDs."""
+
+    input_paths = sorted((Path(path) for path in args.reasoning_jsonl), key=chunk_sort_key)
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    rejected_path = Path(args.rejected_output) if args.rejected_output else None
+    if rejected_path:
+        rejected_path.parent.mkdir(parents=True, exist_ok=True)
+
+    total = 0
+    accepted = 0
+    rejected = 0
+    last_line_number = 0
+    rejection_counts: Dict[str, int] = {}
+    selected_models: Dict[str, int] = {}
+    rejected_examples: List[Dict[str, Any]] = []
+
+    reject_handle = rejected_path.open("w", encoding="utf-8") if rejected_path else None
+    try:
+        with output_path.open("w", encoding="utf-8") as out:
+            for path in input_paths:
+                for candidate in iter_jsonl(path):
+                    total += 1
+                    try:
+                        line_number = int(candidate.get("line_number"))
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError(f"{path} has a reasoning record without integer line_number") from exc
+                    if line_number <= last_line_number:
+                        raise ValueError(
+                            "Reasoning chunks are not strictly increasing by source line. "
+                            f"line_number={line_number} previous={last_line_number} file={path}. "
+                            "Remove duplicate/stale chunks or run grouped curation for small multi-teacher samples."
+                        )
+                    last_line_number = line_number
+
+                    task = str(candidate.get("task") or "")
+                    curated = curate_reasoning_text(
+                        str(candidate.get("reasoning") or ""),
+                        task=task,
+                        min_words=args.min_words,
+                        max_words=args.max_words,
+                        drop_risky_sentences=not args.keep_risky_sentences,
+                    )
+                    if curated["accepted"]:
+                        record = dict(candidate)
+                        record["reasoning"] = curated["reasoning"]
+                        record["reasoning_source"] = "teacher_vlm_curated"
+                        tags = [str(tag) for tag in record.get("tags", [])]
+                        tags.extend(curated["curation_tags"])
+                        tags.append("curated")
+                        record["tags"] = sorted(set(tags))
+                        record["curation"] = {
+                            "source_file": str(path),
+                            "raw_word_count": len(str(candidate.get("reasoning") or "").split()),
+                            "word_count": curated["word_count"],
+                            "preferred_model_rank": provider_priority(
+                                str(candidate.get("selected_model") or ""),
+                                args.preferred_model,
+                            ),
+                        }
+                        out.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+                        accepted += 1
+                        model = str(record.get("selected_model") or "unknown")
+                        selected_models[model] = selected_models.get(model, 0) + 1
+                    else:
+                        rejected += 1
+                        for reason in curated["reject_reasons"]:
+                            rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
+                        artifact = {
+                            "record_id": candidate.get("record_id"),
+                            "line_number": candidate.get("line_number"),
+                            "source_file": str(path),
+                            "selected_model": candidate.get("selected_model"),
+                            "reasoning": curated["reasoning"]
+                            or normalize_reasoning_text(candidate.get("reasoning") or ""),
+                            "reject_reasons": curated["reject_reasons"],
+                            "risky_terms": curated["risky_terms"],
+                            "word_count": curated["word_count"],
+                        }
+                        if reject_handle:
+                            reject_handle.write(json.dumps(artifact, ensure_ascii=False, separators=(",", ":")) + "\n")
+                        if len(rejected_examples) < args.examples:
+                            rejected_examples.append(artifact)
+    finally:
+        if reject_handle:
+            reject_handle.close()
+
+    print(
+        json.dumps(
+            {
+                "total_records": total,
+                "accepted": accepted,
+                "rejected": rejected,
+                "acceptance_rate": accepted / total if total else 0.0,
+                "selected_models": selected_models,
+                "rejection_counts": rejection_counts,
+                "output": str(output_path),
+                "rejected_output": str(rejected_path) if rejected_path else None,
+                "rejected_examples": rejected_examples,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Teacher reasoning annotation utilities.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -681,6 +892,16 @@ def main() -> None:
     mrg.add_argument("--require-reasoning", action="store_true")
     mrg.set_defaults(func=merge)
 
+    mrg_stream = subparsers.add_parser(
+        "merge-stream",
+        help="Merge line-number-sorted curated reasoning into a manifest without loading all rows.",
+    )
+    mrg_stream.add_argument("--manifest", required=True)
+    mrg_stream.add_argument("--reasoning-jsonl", required=True)
+    mrg_stream.add_argument("--output", required=True)
+    mrg_stream.add_argument("--require-reasoning", action="store_true")
+    mrg_stream.set_defaults(func=merge_stream)
+
     aud = subparsers.add_parser("audit", help="Audit teacher reasoning quality with lightweight heuristics.")
     aud.add_argument("--reasoning-jsonl", required=True)
     aud.add_argument("--min-words", type=int, default=8)
@@ -699,6 +920,20 @@ def main() -> None:
     cur.add_argument("--keep-risky-sentences", action="store_true")
     cur.add_argument("--examples", type=int, default=8)
     cur.set_defaults(func=curate)
+
+    cur_stream = subparsers.add_parser(
+        "curate-stream",
+        help="Clean full reasoning chunks in source line order without loading all candidates.",
+    )
+    cur_stream.add_argument("--reasoning-jsonl", required=True, nargs="+")
+    cur_stream.add_argument("--output", required=True)
+    cur_stream.add_argument("--rejected-output", default=None)
+    cur_stream.add_argument("--preferred-model", action="append", default=[])
+    cur_stream.add_argument("--min-words", type=int, default=8)
+    cur_stream.add_argument("--max-words", type=int, default=80)
+    cur_stream.add_argument("--keep-risky-sentences", action="store_true")
+    cur_stream.add_argument("--examples", type=int, default=8)
+    cur_stream.set_defaults(func=curate_stream)
 
     args = parser.parse_args()
     args.func(args)
