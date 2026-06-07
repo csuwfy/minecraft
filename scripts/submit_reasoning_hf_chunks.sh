@@ -12,6 +12,8 @@ MODEL="${MODEL:-Qwen/Qwen2.5-VL-7B-Instruct}"
 TORCH_DTYPE="${TORCH_DTYPE:-bfloat16}"
 TOTAL_RECORDS="${TOTAL_RECORDS:?Set TOTAL_RECORDS to the manifest line count.}"
 CHUNK_SIZE="${CHUNK_SIZE:-10000}"
+START_OFFSET="${START_OFFSET:-0}"
+RECORD_LIMIT="${RECORD_LIMIT:-0}"
 MAX_JOBS="${MAX_JOBS:-0}"
 QUEUE="${QUEUE:-v1_gpu72}"
 GPU_TYPE="${GPU_TYPE:-L40S}"
@@ -40,12 +42,26 @@ if [[ "$EXTRA_ARGS" != "" ]]; then
 fi
 
 submitted=0
-for ((start=0; start<TOTAL_RECORDS; start+=CHUNK_SIZE)); do
+if [[ "$TOTAL_RECORDS" -le 0 || "$CHUNK_SIZE" -le 0 || "$START_OFFSET" -lt 0 || "$RECORD_LIMIT" -lt 0 ]]; then
+  echo "TOTAL_RECORDS and CHUNK_SIZE must be positive; START_OFFSET and RECORD_LIMIT must be non-negative." >&2
+  exit 2
+fi
+if [[ "$START_OFFSET" -ge "$TOTAL_RECORDS" ]]; then
+  echo "START_OFFSET must be smaller than TOTAL_RECORDS." >&2
+  exit 2
+fi
+
+end="$TOTAL_RECORDS"
+if [[ "$RECORD_LIMIT" -gt 0 && $((START_OFFSET + RECORD_LIMIT)) -lt "$end" ]]; then
+  end=$((START_OFFSET + RECORD_LIMIT))
+fi
+
+for ((start=START_OFFSET; start<end; start+=CHUNK_SIZE)); do
   if [[ "$MAX_JOBS" -gt 0 && "$submitted" -ge "$MAX_JOBS" ]]; then
     break
   fi
   limit="$CHUNK_SIZE"
-  remaining=$((TOTAL_RECORDS - start))
+  remaining=$((end - start))
   if [[ "$remaining" -lt "$limit" ]]; then
     limit="$remaining"
   fi
@@ -90,4 +106,4 @@ PBS
   submitted=$((submitted + 1))
 done
 
-echo "submitted_reasoning_chunks=$submitted model=$MODEL stage=$STAGE split=$SPLIT chunk_size=$CHUNK_SIZE"
+echo "submitted_reasoning_chunks=$submitted model=$MODEL stage=$STAGE split=$SPLIT start_offset=$START_OFFSET end=$end chunk_size=$CHUNK_SIZE"

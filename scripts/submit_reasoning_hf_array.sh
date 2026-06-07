@@ -12,6 +12,8 @@ MODEL="${MODEL:-Qwen/Qwen2.5-VL-7B-Instruct}"
 TORCH_DTYPE="${TORCH_DTYPE:-bfloat16}"
 TOTAL_RECORDS="${TOTAL_RECORDS:?Set TOTAL_RECORDS to the manifest line count.}"
 CHUNK_SIZE="${CHUNK_SIZE:-10000}"
+START_OFFSET="${START_OFFSET:-0}"
+RECORD_LIMIT="${RECORD_LIMIT:-0}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-2}"
 QUEUE="${QUEUE:-v1_gpu72}"
 GPU_TYPE="${GPU_TYPE:-L40S}"
@@ -39,12 +41,20 @@ if [[ "$EXTRA_ARGS" != "" ]]; then
   EXTRA_ARGS_LINE="  $EXTRA_ARGS"
 fi
 
-if [[ "$TOTAL_RECORDS" -le 0 || "$CHUNK_SIZE" -le 0 ]]; then
-  echo "TOTAL_RECORDS and CHUNK_SIZE must be positive." >&2
+if [[ "$TOTAL_RECORDS" -le 0 || "$CHUNK_SIZE" -le 0 || "$START_OFFSET" -lt 0 || "$RECORD_LIMIT" -lt 0 ]]; then
+  echo "TOTAL_RECORDS and CHUNK_SIZE must be positive; START_OFFSET and RECORD_LIMIT must be non-negative." >&2
+  exit 2
+fi
+if [[ "$START_OFFSET" -ge "$TOTAL_RECORDS" ]]; then
+  echo "START_OFFSET must be smaller than TOTAL_RECORDS." >&2
   exit 2
 fi
 
-CHUNK_COUNT=$(( (TOTAL_RECORDS + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+RUN_RECORDS=$(( TOTAL_RECORDS - START_OFFSET ))
+if [[ "$RECORD_LIMIT" -gt 0 && "$RECORD_LIMIT" -lt "$RUN_RECORDS" ]]; then
+  RUN_RECORDS="$RECORD_LIMIT"
+fi
+CHUNK_COUNT=$(( (RUN_RECORDS + CHUNK_SIZE - 1) / CHUNK_SIZE ))
 LAST_INDEX=$(( CHUNK_COUNT - 1 ))
 SCRIPT="$OUT_ROOT/pbs_reasoning_stage${STAGE}_${SPLIT}_${MODEL_SAFE}_array.pbs"
 ARRAY_DIRECTIVE=""
@@ -69,10 +79,11 @@ export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 index="\${PBS_ARRAY_INDEX:-0}"
-start=\$((index * ${CHUNK_SIZE}))
-remaining=\$(( ${TOTAL_RECORDS} - start ))
+start=\$(( ${START_OFFSET} + index * ${CHUNK_SIZE} ))
+batch_end=$(( ${START_OFFSET} + ${RUN_RECORDS} ))
+remaining=\$(( batch_end - start ))
 if [[ "\$remaining" -le 0 ]]; then
-  echo "skip_empty_chunk index=\$index start=\$start total=${TOTAL_RECORDS}"
+  echo "skip_empty_chunk index=\$index start=\$start batch_end=$batch_end total=${TOTAL_RECORDS}"
   exit 0
 fi
 limit=${CHUNK_SIZE}
@@ -104,4 +115,4 @@ python -m training.reasoning_annotation audit \\
 PBS
 
 "$QSUB" "$SCRIPT"
-echo "submitted_reasoning_array stage=$STAGE split=$SPLIT model=$MODEL chunks=$CHUNK_COUNT chunk_size=$CHUNK_SIZE max_concurrent=$MAX_CONCURRENT script=$SCRIPT"
+echo "submitted_reasoning_array stage=$STAGE split=$SPLIT model=$MODEL start_offset=$START_OFFSET run_records=$RUN_RECORDS chunks=$CHUNK_COUNT chunk_size=$CHUNK_SIZE max_concurrent=$MAX_CONCURRENT script=$SCRIPT"
