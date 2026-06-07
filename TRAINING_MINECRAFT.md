@@ -271,17 +271,18 @@ MODELS="Qwen/Qwen2.5-VL-3B-Instruct Qwen/Qwen2.5-VL-7B-Instruct HuggingFaceTB/Sm
 bash scripts/run_reasoning_hf_model_sweep.sh
 ```
 
-For full split annotation on an HPC queue, submit resumable chunks. Do this for
-each stage and for both `train` and `val`:
+For full split annotation on an HPC queue, submit a resumable PBS array. Do this
+for each stage and for both `train` and `val`. Keep `MAX_CONCURRENT` small on
+shared clusters:
 
 ```bash
 STAGE=1 SPLIT=train TOTAL_RECORDS=14905598 CHUNK_SIZE=10000 \
-MODEL=Qwen/Qwen2.5-VL-7B-Instruct GPU_TYPE=L40S \
-bash scripts/submit_reasoning_hf_chunks.sh
+MAX_CONCURRENT=2 MODEL=Qwen/Qwen2.5-VL-7B-Instruct GPU_TYPE=L40S \
+bash scripts/submit_reasoning_hf_array.sh
 
 STAGE=1 SPLIT=val TOTAL_RECORDS=10000 CHUNK_SIZE=10000 \
 MODEL=Qwen/Qwen2.5-VL-7B-Instruct GPU_TYPE=L40S \
-bash scripts/submit_reasoning_hf_chunks.sh
+bash scripts/submit_reasoning_hf_array.sh
 ```
 
 The helper scripts set Stage 1 reasoning annotation to `20` frames/images by
