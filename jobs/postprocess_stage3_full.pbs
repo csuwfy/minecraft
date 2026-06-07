@@ -1,0 +1,42 @@
+#!/bin/bash
+#PBS -N combatvla_s3_post
+#PBS -q v1_small72
+#PBS -l select=1:ncpus=4:mem=32gb
+#PBS -l walltime=04:00:00
+#PBS -j oe
+#PBS -o logs/postprocess_stage3_full.log
+
+set -euo pipefail
+
+BASE=${BASE:-/path/to/combatvla-workspace}
+REPO=${REPO:-$BASE/src/CombatVLA}
+ENV=${ENV:-$BASE/envs/combatvla-train}
+DATA_ROOT=${DATA_ROOT:-$REPO/data/minecraft_full}
+
+cd "$REPO"
+mkdir -p logs
+
+rm -f \
+  "$DATA_ROOT/train_stage3.jsonl.offsets.u64" \
+  "$DATA_ROOT/train_stage3.jsonl.offsets.json" \
+  "$DATA_ROOT/val_stage3.jsonl.offsets.u64" \
+  "$DATA_ROOT/val_stage3.jsonl.offsets.json"
+
+"$ENV/bin/python" -m training.validate_manifest \
+  --manifest "$DATA_ROOT/train_stage3.jsonl" \
+  --image-root "$DATA_ROOT" \
+  --stage 3 \
+  --max-frames 4 \
+  --limit 16 \
+  --load-images
+
+"$ENV/bin/python" -m training.validate_manifest \
+  --manifest "$DATA_ROOT/val_stage3.jsonl" \
+  --image-root "$DATA_ROOT" \
+  --stage 3 \
+  --max-frames 4 \
+  --limit 16 \
+  --load-images
+
+wc -l "$DATA_ROOT/train_stage3.jsonl" "$DATA_ROOT/val_stage3.jsonl"
+du -sh "$DATA_ROOT/train_stage3.jsonl" "$DATA_ROOT/val_stage3.jsonl" "$DATA_ROOT/frames_optimus_mgoa_stage3"

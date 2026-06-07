@@ -233,6 +233,14 @@ python -m training.convert_optimus_mgoa_stage3 \
   --skip-existing-frames
 ```
 
+After a full HPC conversion finishes, rebuild final offset caches and validate
+the converted image paths:
+
+```bash
+BASE=$PROJECT_ROOT REPO=$PROJECT_ROOT ENV=$CONDA_PREFIX \
+qsub jobs/postprocess_stage3_full.pbs
+```
+
 For a controlled ablation only, add `--reasoning-source template` to create
 deterministic synthetic reasoning from the task and selected action; those rows
 are marked with `metadata.reasoning_source="synthetic_template"`. For paper-like
