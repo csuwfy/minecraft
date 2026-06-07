@@ -5,6 +5,7 @@ PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"
 DATA_ROOT="${DATA_ROOT:-$PROJECT_ROOT/data/minecraft_full}"
 OUT_ROOT="${OUT_ROOT:-$PROJECT_ROOT/data/reasoning}"
 LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/logs}"
+HF_HOME_DIR="${HF_HOME_DIR:-${HF_HOME:-$PROJECT_ROOT/cache/huggingface}}"
 STAGE="${STAGE:-3}"
 SPLIT="${SPLIT:-train}"
 MODEL="${MODEL:-Qwen/Qwen2.5-VL-7B-Instruct}"
@@ -33,6 +34,10 @@ if [[ "$STAGE" == "1" ]]; then
   EXTRA_ARGS="--tess-stage1-index $DATA_ROOT/tess_stage1_parquet_index.json"
 fi
 MAX_IMAGES="${MAX_IMAGES_OVERRIDE:-$MAX_IMAGES}"
+EXTRA_ARGS_LINE=""
+if [[ "$EXTRA_ARGS" != "" ]]; then
+  EXTRA_ARGS_LINE="  $EXTRA_ARGS"
+fi
 
 submitted=0
 for ((start=0; start<TOTAL_RECORDS; start+=CHUNK_SIZE)); do
@@ -57,7 +62,7 @@ for ((start=0; start<TOTAL_RECORDS; start+=CHUNK_SIZE)); do
 #PBS -e ${LOG_ROOT}/reasoning_stage${STAGE}_${SPLIT}_${MODEL_SAFE}_start${chunk_id}.err
 set -euo pipefail
 cd "$PROJECT_ROOT"
-export HF_HOME="\${HF_HOME:-$PROJECT_ROOT/cache/huggingface}"
+export HF_HOME="\${HF_HOME:-$HF_HOME_DIR}"
 export HF_HUB_ENABLE_HF_TRANSFER=1
 export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -74,8 +79,8 @@ python -m training.reasoning_hf_teacher \\
   --output "$output" \\
   --start "$start" \\
   --limit "$limit" \\
-  --resume \\
-  $EXTRA_ARGS
+  --resume${EXTRA_ARGS_LINE:+ \\
+$EXTRA_ARGS_LINE}
 python -m training.reasoning_annotation audit \\
   --reasoning-jsonl "$output" \\
   --drop-risky-sentences \\
