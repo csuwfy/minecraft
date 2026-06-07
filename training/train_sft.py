@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import torch
+from torch.utils.data import Subset
 from peft import LoraConfig, get_peft_model
 from transformers import (
     AutoModelForImageTextToText,
@@ -190,6 +191,9 @@ def main() -> None:
             user_prompt=data_cfg.get("user_prompt"),
             tess_stage1_index=data_cfg.get("tess_stage1_index"),
         )
+        eval_max_samples = int(data_cfg.get("eval_max_samples") or 0)
+        if eval_max_samples > 0 and eval_max_samples < len(eval_dataset):
+            eval_dataset = Subset(eval_dataset, range(eval_max_samples))
 
     train_cfg = config["training"]
     output_dir = Path(train_cfg.get("output_dir", "outputs/minecraft-vla"))

@@ -21,6 +21,7 @@
     "stage": 1,
     "max_frames": 20,
     "max_length": 8192,
+    "eval_max_samples": 128,
     "mask_prompt_labels": true
   },
   "training": {
