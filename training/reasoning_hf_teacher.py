@@ -27,6 +27,22 @@ from training.reasoning_annotation import (
 from training.dataset import MinecraftVLADataset
 
 
+def fallback_reasoning_from_text(text: str) -> str:
+    cleaned = text.strip()
+    if not cleaned:
+        return ""
+    for fence in ("```json", "```"):
+        cleaned = cleaned.replace(fence, "")
+    cleaned = cleaned.strip()
+    prefixes = ("reasoning:", "explanation:", "answer:")
+    lowered = cleaned.lower()
+    for prefix in prefixes:
+        if lowered.startswith(prefix):
+            cleaned = cleaned[len(prefix) :].strip()
+            break
+    return " ".join(cleaned.split())
+
+
 def load_model(model_name: str, torch_dtype: str):
     dtype = getattr(torch, torch_dtype)
     processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
@@ -69,7 +85,15 @@ def generate_reasoning(
     prompt_len = inputs["input_ids"].shape[1]
     output_ids = generated[:, prompt_len:]
     text_out = processor.batch_decode(output_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
-    parsed = parse_json_response(text_out)
+    try:
+        parsed = parse_json_response(text_out)
+    except json.JSONDecodeError as exc:
+        parsed = {
+            "reasoning": fallback_reasoning_from_text(text_out),
+            "confidence": 0.3,
+            "tags": ["fallback_text_parse"],
+            "parse_error": type(exc).__name__,
+        }
     parsed["raw_text"] = text_out
     return parsed
 
