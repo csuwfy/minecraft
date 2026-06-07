@@ -26,6 +26,7 @@ from training.image_refs import TessStage1ImageStore, load_image
 
 
 JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
+RISKY_TOOL_RE = re.compile(r"\b(axe|pickaxe|sword|tool|inventory|hotbar)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -343,6 +344,60 @@ def merge(args: argparse.Namespace) -> None:
     print(json.dumps({"total": total, "merged": merged, "output": str(output_path)}, ensure_ascii=False))
 
 
+def audit(args: argparse.Namespace) -> None:
+    path = Path(args.reasoning_jsonl)
+    total = 0
+    nonempty = 0
+    risky = 0
+    too_long = 0
+    too_short = 0
+    tags: Dict[str, int] = {}
+    accepted = 0
+    examples: List[Dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            total += 1
+            reasoning = str(record.get("reasoning") or "").strip()
+            words = reasoning.split()
+            has_risky = bool(RISKY_TOOL_RE.search(reasoning))
+            if reasoning:
+                nonempty += 1
+            if has_risky:
+                risky += 1
+            if len(words) > args.max_words:
+                too_long += 1
+            if len(words) < args.min_words:
+                too_short += 1
+            for tag in record.get("tags", []):
+                tags[str(tag)] = tags.get(str(tag), 0) + 1
+            ok = bool(reasoning) and not has_risky and args.min_words <= len(words) <= args.max_words
+            if ok:
+                accepted += 1
+            elif len(examples) < args.examples:
+                examples.append(
+                    {
+                        "record_id": record.get("record_id"),
+                        "words": len(words),
+                        "risky_tool_terms": has_risky,
+                        "reasoning": reasoning,
+                    }
+                )
+    report = {
+        "total": total,
+        "nonempty": nonempty,
+        "accepted_by_heuristic": accepted,
+        "risky_tool_terms": risky,
+        "too_short": too_short,
+        "too_long": too_long,
+        "tags": tags,
+        "rejected_examples": examples,
+    }
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Teacher reasoning annotation utilities.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -371,6 +426,13 @@ def main() -> None:
     mrg.add_argument("--output", required=True)
     mrg.add_argument("--require-reasoning", action="store_true")
     mrg.set_defaults(func=merge)
+
+    aud = subparsers.add_parser("audit", help="Audit teacher reasoning quality with lightweight heuristics.")
+    aud.add_argument("--reasoning-jsonl", required=True)
+    aud.add_argument("--min-words", type=int, default=8)
+    aud.add_argument("--max-words", type=int, default=80)
+    aud.add_argument("--examples", type=int, default=8)
+    aud.set_defaults(func=audit)
 
     args = parser.parse_args()
     args.func(args)
