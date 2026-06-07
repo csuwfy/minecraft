@@ -1,8 +1,9 @@
 """Convert Optimus-2-MGOA trajectories into Minecraft Stage3 manifests.
 
 This converter expects the full Optimus video split archive to be assembled as
-`video.tar.gz`, plus `action.tar.gz` and `task_description_map.json`. It writes
-Stage3 examples with action-first targets and deterministic reasoning text.
+`video.tar.gz`, plus `action.tar.gz` and `task_description_map.json`. Optimus
+does not ship human-written Action-of-Thought explanations, so reasoning is
+empty by default unless an explicit reasoning source is supplied.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import shutil
 import tarfile
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 import cv2
 
@@ -130,6 +131,55 @@ def write_frames(
     return rel_names
 
 
+def reasoning_key(trajectory_id: str, action_index: int) -> str:
+    return f"{trajectory_id}:{action_index}"
+
+
+def load_reasoning_jsonl(path: Path) -> Dict[str, str]:
+    lookup: Dict[str, str] = {}
+    with path.open("r", encoding="utf-8") as handle:
+        for line_no, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            trajectory_id = record.get("trajectory_id") or record.get("key") or record.get("video_id")
+            action_index = first_present(record, "action_index", "frame_idx", "video_frame_index")
+            reasoning = str(record.get("reasoning") or record.get("analysis") or "").strip()
+            if trajectory_id is None or action_index is None:
+                raise ValueError(f"{path}:{line_no} requires trajectory_id/key/video_id and action_index/frame_idx")
+            if reasoning:
+                lookup[reasoning_key(str(trajectory_id), int(action_index))] = reasoning
+    return lookup
+
+
+def first_present(record: Mapping[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in record:
+            return record[key]
+    return None
+
+
+def record_reasoning(
+    *,
+    source: str,
+    trajectory_id: str,
+    task: str,
+    action: Mapping[str, Any],
+    action_index: int,
+    lookup: Optional[Mapping[str, str]],
+) -> Tuple[str, str]:
+    if source == "none":
+        return "", "none"
+    if source == "template":
+        return reasoning_for(task, action), "synthetic_template"
+    if source == "jsonl":
+        if lookup is None:
+            raise ValueError("reasoning lookup is required when source=jsonl")
+        text = lookup.get(reasoning_key(trajectory_id, action_index), "")
+        return text, "jsonl" if text else "missing"
+    raise ValueError(f"Unsupported reasoning source: {source}")
+
+
 def build_windows(
     frame_names: List[str],
     actions: List[Mapping[str, Any]],
@@ -139,12 +189,25 @@ def build_windows(
     frame_root_rel: str,
     max_window_frames: int,
     stride: int,
+    reasoning_source: str,
+    reasoning_lookup: Optional[Mapping[str, str]],
+    require_reasoning: bool,
 ) -> Iterable[Dict[str, Any]]:
     for frame_pos in range(max_window_frames - 1, len(frame_names)):
         action_idx = frame_pos * stride
         if action_idx >= len(actions):
             break
         action = actions[action_idx]
+        reasoning, reasoning_source_name = record_reasoning(
+            source=reasoning_source,
+            trajectory_id=key,
+            task=task,
+            action=action,
+            action_index=action_idx,
+            lookup=reasoning_lookup,
+        )
+        if require_reasoning and not reasoning:
+            continue
         frames = [
             f"{frame_root_rel}/{frame_names[index]}"
             for index in range(frame_pos - max_window_frames + 1, frame_pos + 1)
@@ -153,7 +216,7 @@ def build_windows(
             "frames": frames,
             "task": task_text(task),
             "actions": [normalize_minerl_action(action, source=SOURCE)],
-            "reasoning": reasoning_for(task, action),
+            "reasoning": reasoning,
             "metadata": {
                 "source": SOURCE,
                 "stage_objective": "frames_truncated_aot_goal_action_alignment",
@@ -162,6 +225,7 @@ def build_windows(
                 "action_index": action_idx,
                 "video_frame_index": action_idx,
                 "frame_stride": stride,
+                "reasoning_source": reasoning_source_name,
             },
         }
 
@@ -187,6 +251,28 @@ def main() -> None:
     parser.add_argument("--val-ratio", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--skip-existing-frames", action="store_true")
+    parser.add_argument(
+        "--reasoning-source",
+        choices=("none", "template", "jsonl"),
+        default="none",
+        help=(
+            "Reasoning provenance. Optimus-2-MGOA has task/action/frame labels but no native AoT explanations; "
+            "'template' is synthetic and intended only for controlled ablations."
+        ),
+    )
+    parser.add_argument(
+        "--reasoning-jsonl",
+        default=None,
+        help=(
+            "Optional JSONL with trajectory_id/key/video_id, action_index/frame_idx, and reasoning fields. "
+            "Used only with --reasoning-source jsonl."
+        ),
+    )
+    parser.add_argument(
+        "--require-reasoning",
+        action="store_true",
+        help="Skip Stage3 windows that do not have non-empty reasoning from the selected source.",
+    )
     args = parser.parse_args()
 
     root = Path(args.root)
@@ -203,6 +289,16 @@ def main() -> None:
             raise FileNotFoundError(path)
 
     task_map = load_task_map(task_map_path)
+    reasoning_lookup = None
+    if args.reasoning_source == "jsonl":
+        if not args.reasoning_jsonl:
+            raise ValueError("--reasoning-jsonl is required with --reasoning-source jsonl")
+        reasoning_lookup = load_reasoning_jsonl(Path(args.reasoning_jsonl))
+        if not reasoning_lookup:
+            raise ValueError(f"No reasoning records found in {args.reasoning_jsonl}")
+    elif args.reasoning_jsonl:
+        raise ValueError("--reasoning-jsonl can only be used with --reasoning-source jsonl")
+
     ordered_keys, val_keys = split_keys(sorted(task_map), args.val_ratio, args.seed)
     if args.max_trajectories:
         ordered_keys = ordered_keys[: args.max_trajectories]
@@ -266,6 +362,9 @@ def main() -> None:
                         frame_root_rel=frame_root_rel,
                         max_window_frames=args.max_window_frames,
                         stride=args.frame_stride,
+                        reasoning_source=args.reasoning_source,
+                        reasoning_lookup=reasoning_lookup,
+                        require_reasoning=args.require_reasoning,
                     ):
                         if target == "val":
                             if counts["val"] >= args.val_count:

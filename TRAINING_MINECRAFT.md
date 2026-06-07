@@ -216,9 +216,11 @@ python -m training.convert_tess_stage2 \
 ```
 
 Stage 3 conversion reads Optimus `task_description_map.json`, `action.tar.gz`,
-and `video.tar.gz`, then builds goal/action/frame windows. Its reasoning text is
-deterministic and explicitly derived from the goal and selected action; it is
-not human-written AoT:
+and `video.tar.gz`, then builds goal/action/frame windows. Optimus-2-MGOA gives
+task/action/frame alignment, but the public files do not include human-written
+Action-of-Thought explanations. By default the converter writes an empty
+`reasoning` field and records `metadata.reasoning_source="none"`; this preserves
+data provenance instead of treating synthetic explanations as original labels.
 
 ```bash
 python -m training.convert_optimus_mgoa_stage3 \
@@ -230,6 +232,12 @@ python -m training.convert_optimus_mgoa_stage3 \
   --max-window-frames 4 \
   --skip-existing-frames
 ```
+
+For a controlled ablation only, add `--reasoning-source template` to create
+deterministic synthetic reasoning from the task and selected action; those rows
+are marked with `metadata.reasoning_source="synthetic_template"`. For paper-like
+AoT with non-empty reasoning, first create a teacher/human reasoning JSONL and
+pass it with `--reasoning-source jsonl --reasoning-jsonl <file>`.
 
 For a smoke conversion, override counts:
 
