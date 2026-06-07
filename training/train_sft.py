@@ -18,6 +18,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
+from transformers.trainer_utils import get_last_checkpoint
 
 from training.collator import VLADataCollator
 from training.dataset import MinecraftVLADataset
@@ -257,7 +258,12 @@ def main() -> None:
         sampler=train_cfg.get("sampler", "default"),
     )
 
-    trainer.train(resume_from_checkpoint=train_cfg.get("resume_from_checkpoint"))
+    resume_from_checkpoint = train_cfg.get("resume_from_checkpoint")
+    if resume_from_checkpoint == "auto":
+        resume_from_checkpoint = get_last_checkpoint(str(output_dir)) if output_dir.exists() else None
+        if resume_from_checkpoint:
+            print(f"Resuming from latest checkpoint: {resume_from_checkpoint}", flush=True)
+    trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     if train_cfg.get("save_final", True):
         trainer.save_model(str(output_dir / "final"))
         processor.save_pretrained(str(output_dir / "final"))
