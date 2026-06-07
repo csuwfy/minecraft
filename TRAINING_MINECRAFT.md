@@ -271,6 +271,31 @@ MODELS="Qwen/Qwen2.5-VL-3B-Instruct Qwen/Qwen2.5-VL-7B-Instruct HuggingFaceTB/Sm
 bash scripts/run_reasoning_hf_model_sweep.sh
 ```
 
+For full split annotation on an HPC queue, submit resumable chunks. Do this for
+each stage and for both `train` and `val`:
+
+```bash
+STAGE=1 SPLIT=train TOTAL_RECORDS=14905598 CHUNK_SIZE=10000 \
+MODEL=Qwen/Qwen2.5-VL-7B-Instruct GPU_TYPE=L40S \
+bash scripts/submit_reasoning_hf_chunks.sh
+
+STAGE=1 SPLIT=val TOTAL_RECORDS=10000 CHUNK_SIZE=10000 \
+MODEL=Qwen/Qwen2.5-VL-7B-Instruct GPU_TYPE=L40S \
+bash scripts/submit_reasoning_hf_chunks.sh
+```
+
+After all chunks for a stage/split finish, merge them with a full-coverage
+check:
+
+```bash
+STAGE=1 SPLIT=train bash scripts/curate_and_merge_reasoning_chunks.sh
+STAGE=1 SPLIT=val bash scripts/curate_and_merge_reasoning_chunks.sh
+```
+
+`curate_and_merge_reasoning_chunks.sh` fails if the merged reasoning manifest
+does not contain the same number of records as the source split, so partial
+teacher samples cannot become paper-style training data by accident.
+
 Then curate one or more teacher files before merging. Curation removes common
 format tails, rejects too-short/too-long explanations, and drops sentences that
 invent unobserved tools, inventory, hotbar, equipment, or health state. It does
