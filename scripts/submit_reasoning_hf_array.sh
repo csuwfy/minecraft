@@ -56,7 +56,8 @@ if [[ "$RECORD_LIMIT" -gt 0 && "$RECORD_LIMIT" -lt "$RUN_RECORDS" ]]; then
 fi
 CHUNK_COUNT=$(( (RUN_RECORDS + CHUNK_SIZE - 1) / CHUNK_SIZE ))
 LAST_INDEX=$(( CHUNK_COUNT - 1 ))
-SCRIPT="$OUT_ROOT/pbs_reasoning_stage${STAGE}_${SPLIT}_${MODEL_SAFE}_array.pbs"
+RANGE_TAG="start$(printf "%09d" "$START_OFFSET")_records${RUN_RECORDS}"
+SCRIPT="$OUT_ROOT/pbs_reasoning_stage${STAGE}_${SPLIT}_${MODEL_SAFE}_${RANGE_TAG}_array.pbs"
 ARRAY_DIRECTIVE=""
 if [[ "$CHUNK_COUNT" -gt 1 ]]; then
   ARRAY_DIRECTIVE="#PBS -J 0-${LAST_INDEX}%${MAX_CONCURRENT}"
@@ -64,13 +65,13 @@ fi
 
 cat > "$SCRIPT" <<PBS
 #!/bin/bash
-#PBS -N rsn_s${STAGE}_${SPLIT}_${MODEL_SAFE}
+#PBS -N rsn_s${STAGE}_${SPLIT}_${RANGE_TAG}
 $ARRAY_DIRECTIVE
 #PBS -l select=1:ncpus=${NCPUS}:mem=${MEM}:ngpus=1:gpu_type=${GPU_TYPE}
 #PBS -l walltime=${WALLTIME}
 #PBS -q ${QUEUE}
-#PBS -o ${LOG_ROOT}/reasoning_stage${STAGE}_${SPLIT}_${MODEL_SAFE}_array.log
-#PBS -e ${LOG_ROOT}/reasoning_stage${STAGE}_${SPLIT}_${MODEL_SAFE}_array.err
+#PBS -o ${LOG_ROOT}/reasoning_stage${STAGE}_${SPLIT}_${MODEL_SAFE}_${RANGE_TAG}_array.log
+#PBS -e ${LOG_ROOT}/reasoning_stage${STAGE}_${SPLIT}_${MODEL_SAFE}_${RANGE_TAG}_array.err
 set -euo pipefail
 cd "$PROJECT_ROOT"
 export HF_HOME="\${HF_HOME:-$HF_HOME_DIR}"
@@ -83,7 +84,7 @@ start=\$(( ${START_OFFSET} + index * ${CHUNK_SIZE} ))
 batch_end=$(( ${START_OFFSET} + ${RUN_RECORDS} ))
 remaining=\$(( batch_end - start ))
 if [[ "\$remaining" -le 0 ]]; then
-  echo "skip_empty_chunk index=\$index start=\$start batch_end=$batch_end total=${TOTAL_RECORDS}"
+  echo "skip_empty_chunk index=\$index start=\$start batch_end=\$batch_end total=${TOTAL_RECORDS}"
   exit 0
 fi
 limit=${CHUNK_SIZE}
