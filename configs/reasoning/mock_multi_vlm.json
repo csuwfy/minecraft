@@ -1,0 +1,18 @@
+{
+  "max_images": 4,
+  "max_image_side": 448,
+  "jpeg_quality": 85,
+  "sleep_seconds": 0.0,
+  "providers": [
+    {
+      "name": "mock_teacher_a",
+      "model": "mock-vlm-a",
+      "mock": true
+    },
+    {
+      "name": "mock_teacher_b",
+      "model": "mock-vlm-b",
+      "mock": true
+    }
+  ]
+}

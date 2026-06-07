@@ -1,0 +1,4 @@
+-r requirements-training.txt
+openai>=1.40.0
+requests>=2.32.0
+vllm>=0.8.0

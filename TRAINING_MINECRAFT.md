@@ -239,6 +239,51 @@ are marked with `metadata.reasoning_source="synthetic_template"`. For paper-like
 AoT with non-empty reasoning, first create a teacher/human reasoning JSONL and
 pass it with `--reasoning-source jsonl --reasoning-jsonl <file>`.
 
+## Teacher Reasoning Annotation
+
+The public Minecraft sources used here do not include the paper's AoT
+`Explanation` labels. To add paper-like reasoning, generate a separate teacher
+artifact first, then merge it into the manifests:
+
+```bash
+CONFIG=configs/reasoning/openai_compatible_multi_vlm.example.json \
+LIMIT=1000 \
+bash scripts/annotate_reasoning.sh
+
+bash scripts/merge_reasoning.sh
+```
+
+`training.reasoning_annotation annotate` reads frames, task text, and the gold
+action from a manifest, calls one or more OpenAI-compatible VLM endpoints, and
+writes auditable records to `data/reasoning/reasoning_stage*.jsonl`. Each record
+keeps all provider outputs plus the selected reasoning. `merge` then writes new
+manifests with `metadata.reasoning_source="teacher_vlm"` into
+`data/minecraft_reasoning/`.
+
+Example multi-endpoint config:
+
+```json
+{
+  "providers": [
+    {
+      "name": "qwen25vl_7b_vllm",
+      "model": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "api_url": "http://127.0.0.1:8000/v1",
+      "api_key_env": "VLLM_API_KEY"
+    },
+    {
+      "name": "internvl3_8b_vllm",
+      "model": "OpenGVLab/InternVL3-8B",
+      "api_url": "http://127.0.0.1:8001/v1",
+      "api_key_env": "VLLM_API_KEY"
+    }
+  ]
+}
+```
+
+For a local pipeline smoke test, use `configs/reasoning/mock_multi_vlm.json`.
+Mock reasoning is marked low-confidence and is not suitable for training.
+
 For a smoke conversion, override counts:
 
 ```bash
