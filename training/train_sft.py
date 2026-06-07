@@ -340,6 +340,7 @@ def main() -> None:
         trunc_token_ids=trunc_token_ids,
         action_category_token_patterns=action_category_token_patterns,
         action_priority=action_priority,
+        decode_tokenizer=tokenizer,
         image_token_ids=image_token_ids(processor),
         adaptive_action_loss=bool(loss_cfg.get("adaptive_action_loss", True)),
         contrastive_weight=float(loss_cfg.get("contrastive_weight", 1.0)),

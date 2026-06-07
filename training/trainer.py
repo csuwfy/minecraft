@@ -30,6 +30,7 @@ class ActionWeightedTrainer(Trainer):
         trunc_token_ids: Optional[list[int]] = None,
         action_category_token_patterns: Optional[Sequence[Sequence[Sequence[int]]]] = None,
         action_priority: Optional[Sequence[str]] = None,
+        decode_tokenizer: Optional[Any] = None,
         image_token_ids: Optional[Sequence[int]] = None,
         adaptive_action_loss: bool = True,
         contrastive_weight: float = 1.0,
@@ -46,6 +47,7 @@ class ActionWeightedTrainer(Trainer):
             for category_patterns in (action_category_token_patterns or [])
         ]
         self.action_priority = list(action_priority or MINECRAFT_ACTION_PRIORITY)
+        self.decode_tokenizer = decode_tokenizer
         self.image_token_ids = list(image_token_ids or [])
         self.adaptive_action_loss = bool(adaptive_action_loss)
         self.contrastive_weight = float(contrastive_weight)
@@ -254,7 +256,7 @@ class ActionWeightedTrainer(Trainer):
             return False
         min_pos = int(action_positions[0])
         max_pos = int(action_positions[-1])
-        tokenizer = getattr(self, "processing_class", None) or getattr(self, "tokenizer", None)
+        tokenizer = self.decode_tokenizer or getattr(self, "processing_class", None) or getattr(self, "tokenizer", None)
         if tokenizer is not None and hasattr(tokenizer, "decode"):
             valid_ids = [
                 int(token_id)
