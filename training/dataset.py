@@ -73,6 +73,14 @@ class MinecraftVLADataset(Dataset):
         self.user_prompt = user_prompt
         self.tess_stage1_index = tess_stage1_index
         self.require_reasoning = require_reasoning
+        if not self.manifest_path.exists():
+            if self.require_reasoning:
+                raise FileNotFoundError(
+                    f"Reasoning manifest is missing: {self.manifest_path}. "
+                    "Paper-style AoT training must first generate and merge full-coverage "
+                    "human/teacher reasoning for this split."
+                )
+            raise FileNotFoundError(f"Manifest is missing: {self.manifest_path}")
         self._offsets = self._load_or_build_offsets()
 
         if not self._offsets:

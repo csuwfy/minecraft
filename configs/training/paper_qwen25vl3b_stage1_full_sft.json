@@ -11,7 +11,28 @@
   },
   "lora": null,
   "loss": {
-    "action_token_weight": 2.0
+    "action_token_weight": 1.0,
+    "adaptive_action_loss": true,
+    "contrastive_weight": 1.0,
+    "alignment_weight": 1.0,
+    "alpha_min": 0.1,
+    "alpha_max": 1.0,
+    "action_priority": [
+      "attack",
+      "use",
+      "place",
+      "break",
+      "craft",
+      "equip",
+      "jump",
+      "sneak",
+      "sprint",
+      "camera",
+      "move",
+      "inventory",
+      "noop",
+      "other"
+    ]
   },
   "data": {
     "train_manifest": "data/minecraft_reasoning/train_stage1.jsonl",

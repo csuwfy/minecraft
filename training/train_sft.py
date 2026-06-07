@@ -23,6 +23,7 @@ from transformers.trainer_utils import get_last_checkpoint
 from training.collator import VLADataCollator
 from training.dataset import MinecraftVLADataset, manifest_record_count
 from training.aot import TRUNC_TOKEN
+from training.actions import ACTION_CATEGORY_ALIASES, MINECRAFT_ACTION_PRIORITY
 from training.trainer import ActionWeightedTrainer
 
 
@@ -155,6 +156,53 @@ def build_model(config: Dict[str, Any]):
     return model, processor
 
 
+def tokenizer_patterns_for_action_priority(tokenizer: Any, priority: list[str]) -> list[list[list[int]]]:
+    patterns: list[list[list[int]]] = []
+    for category in priority:
+        aliases = ACTION_CATEGORY_ALIASES.get(category, [category])
+        category_patterns: list[list[int]] = []
+        for alias in aliases:
+            raw_aliases = {str(alias), str(alias).lower()}
+            text_variants = set()
+            for raw_alias in raw_aliases:
+                text_variants.update(
+                    {
+                        raw_alias,
+                        f" {raw_alias}",
+                        f'"{raw_alias}"',
+                        f':"{raw_alias}"',
+                    }
+                )
+            for text in text_variants:
+                token_ids = tokenizer.encode(text, add_special_tokens=False)
+                if token_ids and token_ids not in category_patterns:
+                    category_patterns.append(token_ids)
+        patterns.append(category_patterns)
+    return patterns
+
+
+def image_token_ids(processor: Any) -> list[int]:
+    tokenizer = getattr(processor, "tokenizer", None)
+    if tokenizer is None:
+        return []
+
+    candidates = [
+        "<image>",
+        "<|image_pad|>",
+        "<|vision_start|>",
+        "<|vision_end|>",
+        "<|video_pad|>",
+    ]
+    ids: list[int] = []
+    for token in candidates:
+        token_id = tokenizer.convert_tokens_to_ids(token)
+        if token_id is None:
+            continue
+        if isinstance(token_id, int) and token_id >= 0 and token_id not in ids:
+            ids.append(token_id)
+    return ids
+
+
 def build_dataset(data_cfg: Dict[str, Any], manifest_key: str) -> MinecraftVLADataset:
     return MinecraftVLADataset(
         manifest_path=data_cfg[manifest_key],
@@ -268,9 +316,11 @@ def main() -> None:
     training_args = TrainingArguments(**args_kwargs)
     loss_cfg = config.get("loss", {})
     action_token_weight = float(loss_cfg.get("action_token_weight", 1.0))
+    action_priority = list(loss_cfg.get("action_priority") or MINECRAFT_ACTION_PRIORITY)
     tokenizer = processor.tokenizer
     action_start_token_ids = tokenizer.encode('{"actions"', add_special_tokens=False)
     trunc_token_ids = tokenizer.encode(TRUNC_TOKEN, add_special_tokens=False)
+    action_category_token_patterns = tokenizer_patterns_for_action_priority(tokenizer, action_priority)
 
     trainer = ActionWeightedTrainer(
         model=model,
@@ -281,10 +331,19 @@ def main() -> None:
             processor,
             max_length=data_cfg.get("max_length", 4096),
             mask_prompt_labels=data_cfg.get("mask_prompt_labels", True),
+            action_priority=action_priority,
+            action_alpha_min=float(loss_cfg.get("alpha_min", 0.1)),
+            action_alpha_max=float(loss_cfg.get("alpha_max", 1.0)),
         ),
         action_token_weight=action_token_weight,
         action_start_token_ids=action_start_token_ids,
         trunc_token_ids=trunc_token_ids,
+        action_category_token_patterns=action_category_token_patterns,
+        action_priority=action_priority,
+        image_token_ids=image_token_ids(processor),
+        adaptive_action_loss=bool(loss_cfg.get("adaptive_action_loss", True)),
+        contrastive_weight=float(loss_cfg.get("contrastive_weight", 1.0)),
+        alignment_weight=float(loss_cfg.get("alignment_weight", 1.0)),
         sampler=train_cfg.get("sampler", "default"),
     )
 

@@ -338,6 +338,16 @@ experiment. The same configs also set `"require_full_coverage": true` and record
 the original `data/minecraft_full/*` source manifests, so a small teacher sample
 cannot be mistaken for a full-data paper reproduction.
 
+The formal configs use the paper's adaptive action-weighted objective:
+`L = L_lang + alpha * L_act`, where `L_act` applies priority-aware action
+matching, visual/action EOS contrastive pull/push, and action-alignment CE.
+The original Black Myth: Wukong action categories are private, so this
+Minecraft reproduction keeps the formula but defines the priority sequence over
+the normalized Minecraft action schema (`attack`, `use`, `place`, `break`,
+`craft`, `equip`, `jump`, `sneak`, `sprint`, `camera`, `move`, `inventory`,
+`noop`, `other`). The old fixed action-token weighting is disabled in the paper
+configs and should only be used for ablations or smoke tests.
+
 Do not treat teacher reasoning as the paper's original human AoT labels. Keep
 the raw teacher JSONL, curated JSONL, rejected JSONL, and merge report with the
 training run so the reasoning provenance is reproducible.

@@ -33,6 +33,7 @@ tensorboard/
 .cache/
 huggingface/
 hf_cache/
+.paper/
 
 # VideoSubFinder binaries and generated files.
 # Keep only the repository placeholder/dummy file and config instructions.

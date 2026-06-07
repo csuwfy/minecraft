@@ -2,20 +2,37 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Sequence
 
 import torch
 
+from training.actions import (
+    MINECRAFT_ACTION_PRIORITY,
+    highest_priority_action_category,
+    infer_action_categories_from_actions,
+    priority_alpha,
+)
 from training.image_refs import TessStage1ImageStore, load_image
 
 
 class VLADataCollator:
     """Apply a processor chat template and build assistant-only labels."""
 
-    def __init__(self, processor: Any, max_length: int = 4096, mask_prompt_labels: bool = True) -> None:
+    def __init__(
+        self,
+        processor: Any,
+        max_length: int = 4096,
+        mask_prompt_labels: bool = True,
+        action_priority: Optional[Sequence[str]] = None,
+        action_alpha_min: float = 0.1,
+        action_alpha_max: float = 1.0,
+    ) -> None:
         self.processor = processor
         self.max_length = max_length
         self.mask_prompt_labels = mask_prompt_labels
+        self.action_priority = list(action_priority or MINECRAFT_ACTION_PRIORITY)
+        self.action_alpha_min = float(action_alpha_min)
+        self.action_alpha_max = float(action_alpha_max)
         self._tess_stage1_stores: Dict[str, TessStage1ImageStore] = {}
 
     def __call__(self, examples: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
@@ -68,6 +85,26 @@ class VLADataCollator:
                 labels[row, :prompt_len] = -100
 
         batch["labels"] = labels
+        category_ids = []
+        alphas = []
+        for item in examples:
+            categories = infer_action_categories_from_actions(item.get("actions", []))
+            category = highest_priority_action_category(categories, self.action_priority)
+            try:
+                category_id = self.action_priority.index(category)
+            except ValueError:
+                category_id = len(self.action_priority) - 1
+            category_ids.append(category_id)
+            alphas.append(
+                priority_alpha(
+                    category,
+                    self.action_priority,
+                    alpha_min=self.action_alpha_min,
+                    alpha_max=self.action_alpha_max,
+                )
+            )
+        batch["action_category_ids"] = torch.tensor(category_ids, dtype=torch.long)
+        batch["action_priority_alpha"] = torch.tensor(alphas, dtype=torch.float)
         return batch
 
     def _store_for(self, index_path: Any) -> TessStage1ImageStore | None:
