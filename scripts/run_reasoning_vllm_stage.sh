@@ -13,6 +13,7 @@ MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.90}"
 API_KEY="${VLLM_API_KEY:-dummy-key}"
+MODEL_SAFE="${MODEL//\//_}"
 
 mkdir -p "$OUT_ROOT"
 
@@ -45,7 +46,8 @@ python -m vllm.entrypoints.openai.api_server \
   --api-key "$API_KEY" \
   --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
-  --max-model-len "$MAX_MODEL_LEN" &
+  --max-model-len "$MAX_MODEL_LEN" \
+  --limit-mm-per-prompt image=4 &
 SERVER_PID=$!
 
 cleanup() {
@@ -84,7 +86,7 @@ python -m training.reasoning_annotation annotate \
   --stage "$STAGE" \
   --max-frames "$MAX_FRAMES" \
   --config "$CONFIG" \
-  --output "$OUT_ROOT/reasoning_stage${STAGE}_${MODEL//\\//_}.jsonl" \
+  --output "$OUT_ROOT/reasoning_stage${STAGE}_${MODEL_SAFE}.jsonl" \
   --start "$START" \
   --limit "$LIMIT" \
   --resume \
