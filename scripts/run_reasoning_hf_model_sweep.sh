@@ -18,11 +18,14 @@ MODELS="${MODELS:-Qwen/Qwen2.5-VL-3B-Instruct Qwen/Qwen2.5-VL-7B-Instruct Huggin
 mkdir -p "$OUT_ROOT"
 
 MAX_FRAMES=4
+MAX_IMAGES=4
 EXTRA_ARGS=()
 if [[ "$STAGE" == "1" ]]; then
   MAX_FRAMES=20
+  MAX_IMAGES=20
   EXTRA_ARGS+=(--tess-stage1-index "$DATA_ROOT/tess_stage1_parquet_index.json")
 fi
+MAX_IMAGES="${MAX_IMAGES_OVERRIDE:-$MAX_IMAGES}"
 
 for MODEL in $MODELS; do
   MODEL_SAFE="${MODEL//\//_}"
@@ -34,6 +37,7 @@ for MODEL in $MODELS; do
       --image-root "$DATA_ROOT" \
       --stage "$STAGE" \
       --max-frames "$MAX_FRAMES" \
+      --max-images "$MAX_IMAGES" \
       --model "$MODEL" \
       --torch-dtype "$TORCH_DTYPE" \
       --max-new-tokens "$MAX_NEW_TOKENS" \

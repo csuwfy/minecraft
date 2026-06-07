@@ -14,13 +14,21 @@ TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.90}"
 API_KEY="${VLLM_API_KEY:-dummy-key}"
 MODEL_SAFE="${MODEL//\//_}"
+MAX_IMAGES=4
+LIMIT_MM_IMAGE=4
+if [[ "$STAGE" == "1" ]]; then
+  MAX_IMAGES=20
+  LIMIT_MM_IMAGE=20
+fi
+MAX_IMAGES="${MAX_IMAGES_OVERRIDE:-$MAX_IMAGES}"
+LIMIT_MM_IMAGE="${LIMIT_MM_IMAGE_OVERRIDE:-$LIMIT_MM_IMAGE}"
 
 mkdir -p "$OUT_ROOT"
 
 CONFIG="$OUT_ROOT/vllm_stage${STAGE}_config.json"
 cat > "$CONFIG" <<EOF
 {
-  "max_images": 4,
+  "max_images": $MAX_IMAGES,
   "max_image_side": 448,
   "jpeg_quality": 85,
   "sleep_seconds": 0.0,
@@ -47,7 +55,7 @@ python -m vllm.entrypoints.openai.api_server \
   --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
   --max-model-len "$MAX_MODEL_LEN" \
-  --limit-mm-per-prompt image=4 &
+  --limit-mm-per-prompt image="$LIMIT_MM_IMAGE" &
 SERVER_PID=$!
 
 cleanup() {

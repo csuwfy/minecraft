@@ -284,6 +284,10 @@ MODEL=Qwen/Qwen2.5-VL-7B-Instruct GPU_TYPE=L40S \
 bash scripts/submit_reasoning_hf_chunks.sh
 ```
 
+The helper scripts set Stage 1 reasoning annotation to `20` frames/images by
+default and Stage 2/3 to `4`, matching the paper-style training configs. Override
+only for explicit ablations with `MAX_IMAGES_OVERRIDE`.
+
 After all chunks for a stage/split finish, merge them with a full-coverage
 check:
 
