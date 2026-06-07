@@ -258,8 +258,10 @@ def main() -> None:
     data_cfg = config["data"]
     train_dataset = build_dataset(data_cfg, "train_manifest")
     eval_dataset = None
+    full_eval_dataset = None
     if data_cfg.get("eval_manifest"):
-        eval_dataset = build_dataset(data_cfg, "eval_manifest")
+        full_eval_dataset = build_dataset(data_cfg, "eval_manifest")
+        eval_dataset = full_eval_dataset
         eval_max_samples = int(data_cfg.get("eval_max_samples") or 0)
         if eval_max_samples > 0 and eval_max_samples < len(eval_dataset):
             eval_dataset = Subset(eval_dataset, range(eval_max_samples))
@@ -269,8 +271,8 @@ def main() -> None:
         preflight_dataset(eval_dataset, "eval")
     if data_cfg.get("require_full_coverage", False):
         require_full_manifest_coverage(data_cfg, "train", train_dataset)
-        if eval_dataset is not None:
-            require_full_manifest_coverage(data_cfg, "eval", eval_dataset)
+        if full_eval_dataset is not None:
+            require_full_manifest_coverage(data_cfg, "eval", full_eval_dataset)
 
     model, processor = build_model(config)
 

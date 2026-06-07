@@ -8,9 +8,9 @@
 
 set -euo pipefail
 
-BASE=${BASE:-/path/to/combatvla-workspace}
-REPO=${REPO:-$BASE/src/CombatVLA}
-ENV=${ENV:-$BASE/envs/combatvla-train}
+: "${BASE:?Set BASE to the CombatVLA workspace root before qsub.}"
+: "${REPO:?Set REPO to the CombatVLA repository path before qsub.}"
+: "${ENV:?Set ENV to the Python environment path before qsub.}"
 
 cd "$REPO"
 export HF_HOME="$BASE/cache/huggingface"
