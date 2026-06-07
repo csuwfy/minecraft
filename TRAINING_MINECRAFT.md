@@ -136,6 +136,33 @@ To also download CraftJarvis:
 DOWNLOAD_CRAFTJARVIS=1 bash scripts/download_minecraft_datasets.sh
 ```
 
+## Storage Budget
+
+Use at least `2 TB` of fast local NVMe for the three main datasets and
+converted manifests. Use `3 TB` if you also download CraftJarvis or want room
+for multiple checkpoints.
+
+Approximate space:
+
+| Item | Space | Notes |
+| --- | ---: | --- |
+| TESS Stage1 raw | 702 GB | Required. Stage1 conversion references parquet frames and does not duplicate images. |
+| TESS Stage1 manifests | 15 GB | Observed full-ref manifest size is about 14 GB train plus small validation/index files. |
+| TESS Stage2 raw | 26 GB | Required. |
+| TESS Stage2 converted frames/manifests | 30-80 GB | Depends on JPEG quality and row count. |
+| Optimus-2-MGOA raw | 138 GB | Required for Stage3. |
+| Optimus video parts during download | temporary 130 GB | Deleted by default after `video.tar.gz` is assembled and verified. Set `KEEP_OPTIMUS_VIDEO_PARTS=1` to keep them. |
+| Optimus converted Stage3 frames/manifests | 200-500 GB | Depends on trajectory length, frame stride, and JPEG output. |
+| Hugging Face/model cache | 30-80 GB | Qwen2.5-VL-3B, tokenizer/processor, metadata. |
+| Training checkpoints/logs | 200-600 GB | Full-parameter checkpoints plus optimizer state can grow quickly. |
+| CraftJarvis optional raw | 106 GB | Optional supplement only. Converted frames add more. |
+
+Practical recommendation:
+
+- Minimum three-stage run without CraftJarvis: `2 TB`.
+- Comfortable three-stage run: `3 TB`.
+- Main data plus CraftJarvis plus several checkpoints: `4 TB`.
+
 ## Convert Data
 
 Full conversion:

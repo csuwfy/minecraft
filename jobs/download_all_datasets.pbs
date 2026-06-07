@@ -13,6 +13,7 @@ ENV=${ENV:-$BASE/envs/combatvla-train}
 DATASETS=${DATASETS:-$BASE/datasets}
 CACHE=${CACHE:-$BASE/cache/huggingface}
 HF_CLI=$ENV/bin/huggingface-cli
+KEEP_OPTIMUS_VIDEO_PARTS=${KEEP_OPTIMUS_VIDEO_PARTS:-0}
 
 mkdir -p "$DATASETS" "$CACHE" "$BASE/logs"
 cd "$REPO"
@@ -45,6 +46,9 @@ done
 cd "$DATASETS/optimus2_mgoa"
 cat video.tar.gz.part.* > video.tar.gz
 tar -tzf video.tar.gz >/dev/null
+if [ "$KEEP_OPTIMUS_VIDEO_PARTS" != "1" ]; then
+  rm -f video.tar.gz.part.*
+fi
 
 du -sh "$DATASETS" "$DATASETS/tess_stage1" "$DATASETS/tess_stage2" "$DATASETS/optimus2_mgoa"
 

@@ -5,6 +5,7 @@ PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"
 DATASETS_DIR="${DATASETS_DIR:-$PROJECT_ROOT/datasets}"
 HF_HOME="${HF_HOME:-$PROJECT_ROOT/cache/huggingface}"
 DOWNLOAD_CRAFTJARVIS="${DOWNLOAD_CRAFTJARVIS:-0}"
+KEEP_OPTIMUS_VIDEO_PARTS="${KEEP_OPTIMUS_VIDEO_PARTS:-0}"
 
 mkdir -p "$DATASETS_DIR" "$HF_HOME"
 export HF_HOME
@@ -36,6 +37,9 @@ done
   cd "$DATASETS_DIR/optimus2_mgoa"
   cat video.tar.gz.part.* > video.tar.gz
   tar -tzf video.tar.gz >/dev/null
+  if [ "$KEEP_OPTIMUS_VIDEO_PARTS" != "1" ]; then
+    rm -f video.tar.gz.part.*
+  fi
 )
 
 if [ "$DOWNLOAD_CRAFTJARVIS" = "1" ]; then
