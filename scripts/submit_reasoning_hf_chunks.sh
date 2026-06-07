@@ -23,6 +23,13 @@ WALLTIME="${WALLTIME:-24:00:00}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-220}"
 TEMPERATURE="${TEMPERATURE:-0.0}"
 QSUB="${QSUB:-qsub}"
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  if [[ -n "${ENV:-}" ]]; then
+    PYTHON_BIN="$ENV/bin/python"
+  else
+    PYTHON_BIN="python"
+  fi
+fi
 
 mkdir -p "$OUT_ROOT" "$LOG_ROOT"
 
@@ -82,7 +89,14 @@ export HF_HOME="\${HF_HOME:-$HF_HOME_DIR}"
 export HF_HUB_ENABLE_HF_TRANSFER=1
 export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-python -m training.reasoning_hf_teacher \\
+PYTHON_BIN="$PYTHON_BIN"
+if [[ ! -x "\$PYTHON_BIN" ]]; then
+  if ! command -v "\$PYTHON_BIN" >/dev/null 2>&1; then
+    echo "PYTHON_BIN is not executable and not on PATH: \$PYTHON_BIN" >&2
+    exit 127
+  fi
+fi
+"\$PYTHON_BIN" -m training.reasoning_hf_teacher \\
   --manifest "$DATA_ROOT/${SPLIT}_stage${STAGE}.jsonl" \\
   --image-root "$DATA_ROOT" \\
   --stage "$STAGE" \\
@@ -97,7 +111,7 @@ python -m training.reasoning_hf_teacher \\
   --limit "$limit" \\
   --resume${EXTRA_ARGS_LINE:+ \\
 $EXTRA_ARGS_LINE}
-python -m training.reasoning_annotation audit \\
+"\$PYTHON_BIN" -m training.reasoning_annotation audit \\
   --reasoning-jsonl "$output" \\
   --drop-risky-sentences \\
   --examples 3
