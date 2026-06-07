@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from array import array
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional
 
@@ -43,13 +44,54 @@ class MinecraftVLADataset(Dataset):
         self.system_prompt = system_prompt
         self.user_prompt = user_prompt
         self.tess_stage1_index = tess_stage1_index
-        self._offsets = self._build_offsets()
+        self._offsets = self._load_or_build_offsets()
 
         if not self._offsets:
             raise ValueError(f"No records found in {self.manifest_path}")
 
+    def _load_or_build_offsets(self) -> List[int]:
+        cache_enabled = os.environ.get("VLA_OFFSET_CACHE", "1") != "0"
+        if not cache_enabled:
+            return self._build_offsets()
+
+        cache_path = self.manifest_path.with_name(self.manifest_path.name + ".offsets.u64")
+        meta_path = self.manifest_path.with_name(self.manifest_path.name + ".offsets.json")
+        stat = self.manifest_path.stat()
+        expected = {
+            "path": str(self.manifest_path.resolve()),
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+            "format": "uint64_offsets_v1",
+        }
+
+        if cache_path.exists() and meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                if all(meta.get(key) == value for key, value in expected.items()):
+                    offsets = array("Q")
+                    with cache_path.open("rb") as handle:
+                        offsets.fromfile(handle, cache_path.stat().st_size // offsets.itemsize)
+                    print(f"Loaded {len(offsets):,} manifest offsets from {cache_path}", flush=True)
+                    return list(offsets)
+            except (OSError, ValueError, json.JSONDecodeError):
+                pass
+
+        offsets = self._build_offsets()
+        tmp_cache = cache_path.with_suffix(cache_path.suffix + ".tmp")
+        tmp_meta = meta_path.with_suffix(meta_path.suffix + ".tmp")
+        offset_array = array("Q", offsets)
+        with tmp_cache.open("wb") as handle:
+            offset_array.tofile(handle)
+        expected["records"] = len(offsets)
+        tmp_meta.write_text(json.dumps(expected, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp_cache, cache_path)
+        os.replace(tmp_meta, meta_path)
+        print(f"Wrote {len(offsets):,} manifest offsets to {cache_path}", flush=True)
+        return offsets
+
     def _build_offsets(self) -> List[int]:
         offsets: List[int] = []
+        next_report = 1_000_000
         with self.manifest_path.open("rb") as handle:
             while True:
                 offset = handle.tell()
@@ -58,6 +100,12 @@ class MinecraftVLADataset(Dataset):
                     break
                 if line.strip():
                     offsets.append(offset)
+                    if len(offsets) >= next_report:
+                        print(
+                            f"Indexed {len(offsets):,} records from {self.manifest_path}",
+                            flush=True,
+                        )
+                        next_report += 1_000_000
         return offsets
 
     def _iter_records(self) -> Iterator[Dict[str, Any]]:
