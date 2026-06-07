@@ -19,6 +19,7 @@ MEM="${MEM:-96gb}"
 WALLTIME="${WALLTIME:-24:00:00}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-220}"
 TEMPERATURE="${TEMPERATURE:-0.0}"
+QSUB="${QSUB:-qsub}"
 
 mkdir -p "$OUT_ROOT" "$LOG_ROOT"
 
@@ -80,7 +81,7 @@ python -m training.reasoning_annotation audit \\
   --drop-risky-sentences \\
   --examples 3
 PBS
-  qsub "$script"
+  "$QSUB" "$script"
   submitted=$((submitted + 1))
 done
 

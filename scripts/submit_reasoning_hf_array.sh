@@ -19,6 +19,7 @@ MEM="${MEM:-96gb}"
 WALLTIME="${WALLTIME:-24:00:00}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-220}"
 TEMPERATURE="${TEMPERATURE:-0.0}"
+QSUB="${QSUB:-qsub}"
 
 mkdir -p "$OUT_ROOT" "$LOG_ROOT"
 
@@ -93,5 +94,5 @@ python -m training.reasoning_annotation audit \\
   --examples 3
 PBS
 
-qsub "$SCRIPT"
+"$QSUB" "$SCRIPT"
 echo "submitted_reasoning_array stage=$STAGE split=$SPLIT model=$MODEL chunks=$CHUNK_COUNT chunk_size=$CHUNK_SIZE max_concurrent=$MAX_CONCURRENT script=$SCRIPT"
