@@ -260,6 +260,37 @@ keeps all provider outputs plus the selected reasoning. `merge` then writes new
 manifests with `metadata.reasoning_source="teacher_vlm"` into
 `data/minecraft_reasoning/`.
 
+For local GPU teacher sweeps, run a small sample before full annotation:
+
+```bash
+STAGE=3 LIMIT=200 \
+MODELS="Qwen/Qwen2.5-VL-3B-Instruct Qwen/Qwen2.5-VL-7B-Instruct HuggingFaceTB/SmolVLM2-2.2B-Instruct OpenGVLab/InternVL3-2B" \
+bash scripts/run_reasoning_hf_model_sweep.sh
+```
+
+Then curate one or more teacher files before merging. Curation removes common
+format tails, rejects too-short/too-long explanations, and drops sentences that
+invent unobserved tools, inventory, hotbar, equipment, or health state. It does
+not fabricate missing reasoning; rejected records are written separately for
+audit.
+
+```bash
+STAGE=3 \
+REASONING_JSONL="data/reasoning/reasoning_stage3_Qwen_Qwen2.5-VL-7B-Instruct_limit200_start0.jsonl data/reasoning/reasoning_stage3_Qwen_Qwen2.5-VL-3B-Instruct_limit200_start0.jsonl" \
+bash scripts/curate_and_merge_reasoning.sh
+```
+
+Use the curated manifest for reasoning SFT experiments:
+
+```json
+"train_manifest": "data/minecraft_reasoning/train_stage3.jsonl",
+"eval_manifest": "data/minecraft_reasoning/val_stage3.jsonl"
+```
+
+Do not treat teacher reasoning as the paper's original human AoT labels. Keep
+the raw teacher JSONL, curated JSONL, rejected JSONL, and merge report with the
+training run so the reasoning provenance is reproducible.
+
 Example multi-endpoint config:
 
 ```json

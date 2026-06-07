@@ -20,6 +20,7 @@ from training.reasoning_annotation import (
     action_text,
     build_prompt,
     existing_ids,
+    normalize_reasoning_text,
     parse_json_response,
     record_id,
     select_frame_indices,
@@ -28,19 +29,7 @@ from training.dataset import MinecraftVLADataset
 
 
 def fallback_reasoning_from_text(text: str) -> str:
-    cleaned = text.strip()
-    if not cleaned:
-        return ""
-    for fence in ("```json", "```"):
-        cleaned = cleaned.replace(fence, "")
-    cleaned = cleaned.strip()
-    prefixes = ("reasoning:", "explanation:", "answer:")
-    lowered = cleaned.lower()
-    for prefix in prefixes:
-        if lowered.startswith(prefix):
-            cleaned = cleaned[len(prefix) :].strip()
-            break
-    return " ".join(cleaned.split())
+    return normalize_reasoning_text(text)
 
 
 def load_model(model_name: str, torch_dtype: str):

@@ -16,7 +16,7 @@ import time
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 import requests
 from PIL import Image
@@ -26,7 +26,28 @@ from training.image_refs import TessStage1ImageStore, load_image
 
 
 JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
-RISKY_TOOL_RE = re.compile(r"\b(axe|pickaxe|sword|tool|inventory|hotbar)\b", re.IGNORECASE)
+TAIL_MARKER_RE = re.compile(r"\b(?:confidence|tags?)\s*:", re.IGNORECASE)
+SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]?")
+RISKY_TOOL_TERMS = (
+    "inventory",
+    "hotbar",
+    "health bar",
+    "armor",
+    "shield",
+    "tool",
+    "axe",
+    "pickaxe",
+    "sword",
+    "shovel",
+    "hoe",
+    "bow",
+    "crossbow",
+)
+RISKY_TOOL_RE = re.compile(
+    r"\b(" + "|".join(re.escape(term) for term in RISKY_TOOL_TERMS) + r")\b",
+    re.IGNORECASE,
+)
+CONTEXT_ALLOWED_TOOL_TERMS = {"axe", "pickaxe", "sword", "shovel", "hoe", "bow", "crossbow"}
 
 
 @dataclass(frozen=True)
@@ -147,6 +168,92 @@ def parse_json_response(text: str) -> Dict[str, Any]:
         return json.loads(match.group(0))
 
 
+def normalize_reasoning_text(text: str) -> str:
+    """Normalize teacher free text without inventing missing reasoning."""
+
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return ""
+    for fence in ("```json", "```"):
+        cleaned = cleaned.replace(fence, "")
+    cleaned = cleaned.strip()
+    lowered = cleaned.lower()
+    for prefix in ("reasoning:", "explanation:", "answer:"):
+        if lowered.startswith(prefix):
+            cleaned = cleaned[len(prefix) :].strip()
+            lowered = cleaned.lower()
+            break
+    marker = TAIL_MARKER_RE.search(cleaned)
+    if marker:
+        cleaned = cleaned[: marker.start()].strip()
+    return " ".join(cleaned.split())
+
+
+def risky_terms(reasoning: str, allowed_context: str = "") -> List[str]:
+    """Return risky visible-state/tool terms not justified by task context."""
+
+    context = allowed_context.lower()
+    found: List[str] = []
+    for match in RISKY_TOOL_RE.finditer(reasoning):
+        term = match.group(1).lower()
+        if term in CONTEXT_ALLOWED_TOOL_TERMS and re.search(rf"\b{re.escape(term)}\b", context):
+            continue
+        if term not in found:
+            found.append(term)
+    return found
+
+
+def split_sentences(text: str) -> List[str]:
+    return [match.group(0).strip() for match in SENTENCE_RE.finditer(text) if match.group(0).strip()]
+
+
+def curate_reasoning_text(
+    text: str,
+    *,
+    task: str = "",
+    min_words: int = 8,
+    max_words: int = 80,
+    drop_risky_sentences: bool = True,
+) -> Dict[str, Any]:
+    """Clean and score one teacher reasoning candidate.
+
+    The curator is intentionally conservative: it may remove a teacher sentence
+    that mentions unobserved tools or inventory, but it never fabricates a new
+    explanation to fill a rejected record.
+    """
+
+    original = str(text or "").strip()
+    cleaned = normalize_reasoning_text(original)
+    curation_tags: List[str] = []
+    if drop_risky_sentences and cleaned:
+        sentences = split_sentences(cleaned)
+        kept = [sentence for sentence in sentences if not risky_terms(sentence, task)]
+        if kept and len(kept) < len(sentences):
+            cleaned = " ".join(kept)
+            curation_tags.append("dropped_risky_sentences")
+
+    words = cleaned.split()
+    terms = risky_terms(cleaned, task)
+    reasons: List[str] = []
+    if not cleaned:
+        reasons.append("empty")
+    if len(words) < min_words:
+        reasons.append("too_short")
+    if len(words) > max_words:
+        reasons.append("too_long")
+    if terms:
+        reasons.append("risky_tool_terms")
+    return {
+        "reasoning": cleaned,
+        "raw_reasoning": original,
+        "accepted": not reasons,
+        "reject_reasons": reasons,
+        "risky_terms": terms,
+        "word_count": len(words),
+        "curation_tags": curation_tags,
+    }
+
+
 def call_provider(provider: Provider, prompt: str, image_urls: List[str]) -> Dict[str, Any]:
     if provider.mock:
         return {
@@ -200,11 +307,20 @@ def choose_reasoning(outputs: List[Dict[str, Any]]) -> Dict[str, Any]:
     return valid[0][2]
 
 
+def provider_priority(model: str, preferred_models: Sequence[str]) -> int:
+    if not preferred_models:
+        return 0
+    for index, preferred in enumerate(preferred_models):
+        if preferred and preferred in model:
+            return len(preferred_models) - index
+    return 0
+
+
 def existing_ids(output_path: Path) -> set[str]:
     ids: set[str] = set()
     if not output_path.exists():
         return ids
-    with output_path.open("r", encoding="utf-8") as handle:
+    with output_path.open("r", encoding="utf-8-sig") as handle:
         for line in handle:
             if not line.strip():
                 continue
@@ -299,7 +415,7 @@ def annotate(args: argparse.Namespace) -> None:
 
 def load_reasoning(path: Path) -> Dict[str, Mapping[str, Any]]:
     result: Dict[str, Mapping[str, Any]] = {}
-    with path.open("r", encoding="utf-8") as handle:
+    with path.open("r", encoding="utf-8-sig") as handle:
         for line in handle:
             if not line.strip():
                 continue
@@ -309,6 +425,23 @@ def load_reasoning(path: Path) -> Dict[str, Mapping[str, Any]]:
             if rid and reasoning:
                 result[rid] = record
     return result
+
+
+def load_reasoning_candidates(paths: Sequence[Path]) -> Dict[str, List[Mapping[str, Any]]]:
+    candidates: Dict[str, List[Mapping[str, Any]]] = {}
+    for path in paths:
+        with path.open("r", encoding="utf-8-sig") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                rid = str(record.get("record_id") or "")
+                if not rid:
+                    continue
+                enriched = dict(record)
+                enriched["source_file"] = str(path)
+                candidates.setdefault(rid, []).append(enriched)
+    return candidates
 
 
 def iter_manifest(path: Path) -> Iterable[tuple[int, Dict[str, Any]]]:
@@ -357,15 +490,23 @@ def audit(args: argparse.Namespace) -> None:
     tags: Dict[str, int] = {}
     accepted = 0
     examples: List[Dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
+    with path.open("r", encoding="utf-8-sig") as handle:
         for line in handle:
             if not line.strip():
                 continue
             record = json.loads(line)
             total += 1
-            reasoning = str(record.get("reasoning") or "").strip()
-            words = reasoning.split()
-            has_risky = bool(RISKY_TOOL_RE.search(reasoning))
+            task = str(record.get("task") or "")
+            reasoning = normalize_reasoning_text(record.get("reasoning") or "")
+            curated = curate_reasoning_text(
+                reasoning,
+                task=task,
+                min_words=args.min_words,
+                max_words=args.max_words,
+                drop_risky_sentences=args.drop_risky_sentences,
+            )
+            words = curated["reasoning"].split()
+            has_risky = bool(curated["risky_terms"])
             if reasoning:
                 nonempty += 1
             if has_risky:
@@ -376,7 +517,7 @@ def audit(args: argparse.Namespace) -> None:
                 too_short += 1
             for tag in record.get("tags", []):
                 tags[str(tag)] = tags.get(str(tag), 0) + 1
-            ok = bool(reasoning) and not has_risky and args.min_words <= len(words) <= args.max_words
+            ok = bool(curated["accepted"])
             if ok:
                 accepted += 1
             elif len(examples) < args.examples:
@@ -385,7 +526,8 @@ def audit(args: argparse.Namespace) -> None:
                         "record_id": record.get("record_id"),
                         "words": len(words),
                         "risky_tool_terms": has_risky,
-                        "reasoning": reasoning,
+                        "reject_reasons": curated["reject_reasons"],
+                        "reasoning": curated["reasoning"] or reasoning,
                     }
                 )
     report = {
@@ -397,6 +539,115 @@ def audit(args: argparse.Namespace) -> None:
         "too_long": too_long,
         "tags": tags,
         "rejected_examples": examples,
+    }
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+def curate(args: argparse.Namespace) -> None:
+    input_paths = [Path(path) for path in args.reasoning_jsonl]
+    candidates_by_id = load_reasoning_candidates(input_paths)
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    rejected_path = Path(args.rejected_output) if args.rejected_output else None
+    if rejected_path:
+        rejected_path.parent.mkdir(parents=True, exist_ok=True)
+
+    total = 0
+    accepted = 0
+    rejected = 0
+    rejection_counts: Dict[str, int] = {}
+    selected_models: Dict[str, int] = {}
+    rejected_examples: List[Dict[str, Any]] = []
+
+    reject_handle = rejected_path.open("w", encoding="utf-8") if rejected_path else None
+    try:
+        with output_path.open("w", encoding="utf-8") as out:
+            for rid in sorted(candidates_by_id):
+                total += 1
+                scored: List[tuple[tuple[float, float, float], Mapping[str, Any], Dict[str, Any]]] = []
+                rejected_candidates = []
+                for candidate in candidates_by_id[rid]:
+                    task = str(candidate.get("task") or "")
+                    curated = curate_reasoning_text(
+                        str(candidate.get("reasoning") or ""),
+                        task=task,
+                        min_words=args.min_words,
+                        max_words=args.max_words,
+                        drop_risky_sentences=not args.keep_risky_sentences,
+                    )
+                    if curated["accepted"]:
+                        try:
+                            confidence = float(candidate.get("confidence", 0.0))
+                        except (TypeError, ValueError):
+                            confidence = 0.0
+                        model = str(candidate.get("selected_model") or "")
+                        priority = provider_priority(model, args.preferred_model)
+                        length_score = min(curated["word_count"], 40)
+                        scored.append(((priority, confidence, length_score), candidate, curated))
+                    else:
+                        rejected_candidates.append((candidate, curated))
+                        for reason in curated["reject_reasons"]:
+                            rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
+
+                if scored:
+                    scored.sort(key=lambda item: item[0], reverse=True)
+                    _score, source, curated = scored[0]
+                    record = dict(source)
+                    record["reasoning"] = curated["reasoning"]
+                    record["reasoning_source"] = "teacher_vlm_curated"
+                    tags = [str(tag) for tag in record.get("tags", [])]
+                    tags.extend(curated["curation_tags"])
+                    tags.append("curated")
+                    record["tags"] = sorted(set(tags))
+                    record["curation"] = {
+                        "source_file": source.get("source_file"),
+                        "raw_word_count": len(str(source.get("reasoning") or "").split()),
+                        "word_count": curated["word_count"],
+                        "preferred_model_rank": provider_priority(
+                            str(source.get("selected_model") or ""),
+                            args.preferred_model,
+                        ),
+                    }
+                    out.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+                    accepted += 1
+                    model = str(record.get("selected_model") or "unknown")
+                    selected_models[model] = selected_models.get(model, 0) + 1
+                else:
+                    rejected += 1
+                    artifact = {
+                        "record_id": rid,
+                        "reject_reasons": [item[1]["reject_reasons"] for item in rejected_candidates],
+                        "candidates": [
+                            {
+                                "source_file": item[0].get("source_file"),
+                                "selected_model": item[0].get("selected_model"),
+                                "reasoning": item[1]["reasoning"]
+                                or normalize_reasoning_text(item[0].get("reasoning") or ""),
+                                "reject_reasons": item[1]["reject_reasons"],
+                                "risky_terms": item[1]["risky_terms"],
+                                "word_count": item[1]["word_count"],
+                            }
+                            for item in rejected_candidates
+                        ],
+                    }
+                    if reject_handle:
+                        reject_handle.write(json.dumps(artifact, ensure_ascii=False, separators=(",", ":")) + "\n")
+                    if len(rejected_examples) < args.examples:
+                        rejected_examples.append(artifact)
+    finally:
+        if reject_handle:
+            reject_handle.close()
+
+    report = {
+        "total_record_ids": total,
+        "accepted": accepted,
+        "rejected": rejected,
+        "acceptance_rate": accepted / total if total else 0.0,
+        "selected_models": selected_models,
+        "rejection_counts": rejection_counts,
+        "output": str(output_path),
+        "rejected_output": str(rejected_path) if rejected_path else None,
+        "rejected_examples": rejected_examples,
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
@@ -435,7 +686,19 @@ def main() -> None:
     aud.add_argument("--min-words", type=int, default=8)
     aud.add_argument("--max-words", type=int, default=80)
     aud.add_argument("--examples", type=int, default=8)
+    aud.add_argument("--drop-risky-sentences", action="store_true")
     aud.set_defaults(func=audit)
+
+    cur = subparsers.add_parser("curate", help="Clean and select teacher reasoning from one or more JSONL files.")
+    cur.add_argument("--reasoning-jsonl", required=True, nargs="+")
+    cur.add_argument("--output", required=True)
+    cur.add_argument("--rejected-output", default=None)
+    cur.add_argument("--preferred-model", action="append", default=[])
+    cur.add_argument("--min-words", type=int, default=8)
+    cur.add_argument("--max-words", type=int, default=80)
+    cur.add_argument("--keep-risky-sentences", action="store_true")
+    cur.add_argument("--examples", type=int, default=8)
+    cur.set_defaults(func=curate)
 
     args = parser.parse_args()
     args.func(args)
