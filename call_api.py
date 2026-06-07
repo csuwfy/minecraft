@@ -1,9 +1,12 @@
 from openai import OpenAI
 import base64
+import os
 import time
 
-API_URL="https://<your-server-ip>:8000/v1"
-API_KEY="your_api_key"
+API_URL = os.environ.get("COMBATVLA_API_URL", "https://<your-server-ip>:8000/v1")
+API_KEY = os.environ.get("COMBATVLA_API_KEY", "your_api_key")
+MODEL_NAME = os.environ.get("COMBATVLA_MODEL", "CombatVLA")
+TRUNC_TOKENS = ("<TRUNC>", "<trunc>", "<tool_call>", "</tool_call>")
 
 def encode_image_to_base64(image_path_list):
     encoded_image_list = []
@@ -28,7 +31,7 @@ def get_response(encoded_image_list):
                     "content": [
                         {
                             "type": "text",
-                            "text": "Assuming you are a player of the game \"Black Myth: Wukong,\" your task is to defeat the enemies in the game. Please predict the next actions based on the frame sequence. The explanation following the <trunc> symbol correspond one-to-one with the actions preceding it."
+                            "text": "Assuming you are a player of the game \"Black Myth: Wukong,\" your task is to defeat the enemies in the game. Please predict the next actions based on the frame sequence. The explanation following the <TRUNC> symbol correspond one-to-one with the actions preceding it."
                         }
                     ]
                 },
@@ -44,7 +47,7 @@ def get_response(encoded_image_list):
         msgs[-1]['content'].append(image_url)
 
     completion = client.chat.completions.create(
-        model="CombatVLA",
+        model=MODEL_NAME,
         stream=True,
         messages=msgs,
         temperature=1.0,
@@ -54,12 +57,18 @@ def get_response(encoded_image_list):
 
     action_json = ""
     for chunk in completion:
-        # The model sometimes output <tool_call> token as the <trunc> token...
-        if chunk.choices[0].delta.dict().get("content") == "<trunc>" or chunk.choices[0].delta.dict().get("content") == "<tool_call>" or chunk.choices[0].delta.dict().get("content") == "</tool_call>":
-            break
         if chunk.choices:
-            if chunk.choices[0].delta.content:
-                action_json += chunk.choices[0].delta.dict().get("content")
+            content = chunk.choices[0].delta.dict().get("content")
+            if not content:
+                continue
+
+            # The model sometimes outputs tool-call tokens as the truncation marker.
+            stop_positions = [content.find(token) for token in TRUNC_TOKENS if token in content]
+            if stop_positions:
+                action_json += content[: min(stop_positions)]
+                break
+
+            action_json += content
     return action_json
 
 def call_combatvla(image_path_list):

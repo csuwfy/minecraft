@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments and local secrets
+.env
+.venv/
+venv/
+env/
+*.log
+*.tmp
+
+# Training data, caches, and outputs
+data/
+datasets/
+cache/
+outputs/
+checkpoints/
+runs/
+wandb/
+tensorboard/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+
+# Hugging Face / model cache
+.cache/
+huggingface/
+hf_cache/
+
+# VideoSubFinder binaries and generated files.
+# Keep only the repository placeholder/dummy file and config instructions.
+res/tool/subfinder/*
+!res/tool/subfinder/test.srt
+!res/tool/subfinder/.gitkeep
+!res/tool/subfinder/README.md
+
+# Local bridge state
+tools/cx3_bridge.py
+cx3_bridge_*.json
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

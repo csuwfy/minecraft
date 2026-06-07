@@ -1,0 +1,28 @@
+﻿#!/bin/bash
+#PBS -N combatvla_convert_s2
+#PBS -q v1_small72
+#PBS -l select=1:ncpus=16:mem=96gb
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#PBS -o logs/convert_stage2_tess.log
+
+set -euo pipefail
+
+BASE=${BASE:-/path/to/combatvla-workspace}
+REPO=${REPO:-$BASE/src/CombatVLA}
+ENV=${ENV:-$BASE/envs/combatvla-train}
+DATASETS=${DATASETS:-$BASE/datasets}
+OUT=${OUT:-$REPO/data/minecraft_full}
+
+mkdir -p "$OUT" "$BASE/logs"
+cd "$REPO"
+
+"$ENV/bin/python" -m training.convert_tess_stage2 \
+  --data-dir "$DATASETS/tess_stage2" \
+  --output-root "$OUT" \
+  --train-count 100000000 \
+  --val-count 10000 \
+  --max-frames 4
+
+wc -l "$OUT"/train_stage2.jsonl "$OUT"/val_stage2.jsonl
+

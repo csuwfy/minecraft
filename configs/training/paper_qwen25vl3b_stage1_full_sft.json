@@ -1,0 +1,44 @@
+{
+  "model_name_or_path": "Qwen/Qwen2.5-VL-3B-Instruct",
+  "mode": "paper_stage1_video_aot_full_parameter_lm_sft",
+  "torch_dtype": "bfloat16",
+  "device_map": null,
+  "gradient_checkpointing": true,
+  "freeze_vision_encoder": true,
+  "freeze_parameter_prefixes": ["visual"],
+  "quantization": {
+    "load_in_4bit": false
+  },
+  "lora": null,
+  "loss": {
+    "action_token_weight": 2.0
+  },
+  "data": {
+    "train_manifest": "data/minecraft_full/train_stage1.jsonl",
+    "eval_manifest": "data/minecraft_full/val_stage1.jsonl",
+    "image_root": "data/minecraft_full",
+    "tess_stage1_index": "data/minecraft_full/tess_stage1_parquet_index.json",
+    "stage": 1,
+    "max_frames": 20,
+    "max_length": 8192,
+    "mask_prompt_labels": true
+  },
+  "training": {
+    "output_dir": "outputs/paper-qwen25vl3b-stage1",
+    "per_device_train_batch_size": 1,
+    "per_device_eval_batch_size": 1,
+    "gradient_accumulation_steps": 1,
+    "learning_rate": 1e-5,
+    "num_train_epochs": 3,
+    "warmup_ratio": 0.03,
+    "logging_steps": 10,
+    "save_steps": 500,
+    "eval_steps": 500,
+    "save_total_limit": 2,
+    "bf16": true,
+    "fp16": false,
+    "dataloader_num_workers": 0,
+    "sampler": "sequential",
+    "report_to": "none"
+  }
+}

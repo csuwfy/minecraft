@@ -1,0 +1,45 @@
+{
+  "model_name_or_path": "Qwen/Qwen2.5-VL-3B-Instruct",
+  "mode": "smoke_test_paper_style_full_parameter_lm_sft",
+  "torch_dtype": "bfloat16",
+  "device_map": null,
+  "gradient_checkpointing": true,
+  "freeze_vision_encoder": true,
+  "freeze_parameter_prefixes": ["visual"],
+  "quantization": {
+    "load_in_4bit": false
+  },
+  "lora": null,
+  "loss": {
+    "action_token_weight": 2.0
+  },
+  "data": {
+    "train_manifest": "data/minecraft_smoke/train_stage3.jsonl",
+    "eval_manifest": null,
+    "image_root": "data/minecraft_smoke",
+    "stage": 3,
+    "max_frames": 4,
+    "max_length": 1024,
+    "mask_prompt_labels": true
+  },
+  "training": {
+    "output_dir": "outputs/smoke-qwen25vl3b-stage3-full-sft",
+    "per_device_train_batch_size": 1,
+    "per_device_eval_batch_size": 1,
+    "gradient_accumulation_steps": 1,
+    "learning_rate": 1e-5,
+    "num_train_epochs": 1,
+    "max_steps": 1,
+    "warmup_ratio": 0.0,
+    "logging_steps": 1,
+    "save_strategy": "no",
+    "save_steps": 1000,
+    "eval_steps": 1,
+    "save_final": false,
+    "save_total_limit": 1,
+    "bf16": true,
+    "fp16": false,
+    "dataloader_num_workers": 0,
+    "report_to": "none"
+  }
+}

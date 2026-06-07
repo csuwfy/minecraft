@@ -93,11 +93,12 @@ Then please use res/tool/general.clg to overwrite res/tool/subfinder/settings/ge
 
 Deploy CombatVLA or your fine-tuned VLM on a cloud server (e.g., with vLLM) and expose an OpenAI-compatible API.
 
-Edit `call_api.py` to drive CombatVLA or your fine-tuned VLM:
+Set environment variables to drive CombatVLA or your fine-tuned VLM:
 
 ```env
-API_URL="https://<your-server-ip>:8000/v1"
-API_KEY="your_api_key"
+COMBATVLA_API_URL="https://<your-server-ip>:8000/v1"
+COMBATVLA_API_KEY="your_api_key"
+COMBATVLA_MODEL="CombatVLA"
 ```
 
 ---
@@ -109,6 +110,27 @@ python runner.py
 ```
 
 This launches the efficient game control framework powered by CombatVLA.
+
+---
+
+## Minecraft Three-Stage Training
+
+This fork includes a public-data Minecraft VLA training scaffold under
+`training/`. It keeps large datasets and checkpoints out of GitHub and provides
+Linux scripts for downloading, converting, validating, and running the
+paper-style three-stage schedule on rented GPUs.
+
+See [`TRAINING_MINECRAFT.md`](TRAINING_MINECRAFT.md).
+
+Quick path:
+
+```bash
+bash scripts/setup_l20_env.sh
+conda activate combatvla-train
+bash scripts/download_minecraft_datasets.sh
+bash scripts/convert_minecraft_datasets.sh
+bash scripts/train_three_stage.sh
+```
 
 ---
 

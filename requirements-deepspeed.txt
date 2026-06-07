@@ -1,0 +1,2 @@
+-r requirements-training.txt
+deepspeed>=0.15.0

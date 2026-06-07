@@ -1,0 +1,21 @@
+﻿#!/bin/bash
+#PBS -N combatvla_stage1
+#PBS -l select=1:ncpus=8:mem=96gb:ngpus=1:gpu_type=L40S
+#PBS -l walltime=48:00:00
+#PBS -j oe
+#PBS -o logs/train_stage1.log
+#PBS -q v1_gpu72
+
+set -euo pipefail
+
+BASE=${BASE:-/path/to/combatvla-workspace}
+REPO=${REPO:-$BASE/src/CombatVLA}
+ENV=${ENV:-$BASE/envs/combatvla-train}
+
+cd "$REPO"
+export HF_HOME="$BASE/cache/huggingface"
+export TRANSFORMERS_CACHE="$BASE/cache/huggingface"
+
+"$ENV/bin/python" -m training.train_sft \
+  --config configs/training/paper_qwen25vl3b_stage1_full_sft.json
+

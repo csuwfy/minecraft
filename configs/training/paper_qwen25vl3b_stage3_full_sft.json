@@ -1,0 +1,42 @@
+{
+  "model_name_or_path": "outputs/paper-qwen25vl3b-stage2/final",
+  "mode": "paper_stage3_frames_truncated_aot_full_parameter_lm_sft",
+  "torch_dtype": "bfloat16",
+  "device_map": null,
+  "gradient_checkpointing": true,
+  "freeze_vision_encoder": true,
+  "freeze_parameter_prefixes": ["visual"],
+  "quantization": {
+    "load_in_4bit": false
+  },
+  "lora": null,
+  "loss": {
+    "action_token_weight": 2.0
+  },
+  "data": {
+    "train_manifest": "data/minecraft_full/train_stage3.jsonl",
+    "eval_manifest": "data/minecraft_full/val_stage3.jsonl",
+    "image_root": "data/minecraft_full",
+    "stage": 3,
+    "max_frames": 4,
+    "max_length": 4096,
+    "mask_prompt_labels": true
+  },
+  "training": {
+    "output_dir": "outputs/paper-qwen25vl3b-stage3",
+    "per_device_train_batch_size": 1,
+    "per_device_eval_batch_size": 1,
+    "gradient_accumulation_steps": 1,
+    "learning_rate": 1e-5,
+    "num_train_epochs": 3,
+    "warmup_ratio": 0.03,
+    "logging_steps": 10,
+    "save_steps": 500,
+    "eval_steps": 500,
+    "save_total_limit": 2,
+    "bf16": true,
+    "fp16": false,
+    "dataloader_num_workers": 0,
+    "report_to": "none"
+  }
+}

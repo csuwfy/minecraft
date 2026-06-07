@@ -1,0 +1,50 @@
+﻿#!/bin/bash
+#PBS -N combatvla_download_data
+#PBS -l select=1:ncpus=4:mem=24gb
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#PBS -o logs/download_all_datasets.log
+
+set -euo pipefail
+
+BASE=${BASE:-/path/to/combatvla-workspace}
+REPO=${REPO:-$BASE/src/CombatVLA}
+ENV=${ENV:-$BASE/envs/combatvla-train}
+DATASETS=${DATASETS:-$BASE/datasets}
+CACHE=${CACHE:-$BASE/cache/huggingface}
+HF_CLI=$ENV/bin/huggingface-cli
+
+mkdir -p "$DATASETS" "$CACHE" "$BASE/logs"
+cd "$REPO"
+
+export HF_HOME="$CACHE"
+export HF_HUB_ENABLE_HF_TRANSFER=1
+
+"$ENV/bin/python" -m pip install -q -r requirements-training.txt huggingface_hub hf_transfer
+
+"$HF_CLI" download TESS-Computer/minecraft-vla-stage1 \
+  --repo-type dataset \
+  --local-dir "$DATASETS/tess_stage1"
+
+"$HF_CLI" download TESS-Computer/minecraft-vla-stage2 \
+  --repo-type dataset \
+  --local-dir "$DATASETS/tess_stage2"
+
+"$HF_CLI" download iLearn-Lab/Optimus-2-MGOA \
+  action.tar.gz task_description_map.json \
+  --repo-type dataset \
+  --local-dir "$DATASETS/optimus2_mgoa"
+
+for part in aa ab ac ad ae af ag ah ai aj ak al am; do
+  "$HF_CLI" download iLearn-Lab/Optimus-2-MGOA \
+    "video.tar.gz.part.${part}" \
+    --repo-type dataset \
+    --local-dir "$DATASETS/optimus2_mgoa"
+done
+
+cd "$DATASETS/optimus2_mgoa"
+cat video.tar.gz.part.* > video.tar.gz
+tar -tzf video.tar.gz >/dev/null
+
+du -sh "$DATASETS" "$DATASETS/tess_stage1" "$DATASETS/tess_stage2" "$DATASETS/optimus2_mgoa"
+

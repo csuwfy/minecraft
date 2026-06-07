@@ -1,0 +1,34 @@
+﻿#!/bin/bash
+#PBS -N combatvla_s1_full_ref
+#PBS -q v1_large72
+#PBS -l select=1:ncpus=16:mem=128gb
+#PBS -l walltime=72:00:00
+#PBS -j oe
+#PBS -o logs/convert_stage1_full_ref.log
+
+set -euo pipefail
+
+BASE=${BASE:-/path/to/combatvla-workspace}
+REPO=${REPO:-$BASE/src/CombatVLA}
+ENV=${ENV:-$BASE/envs/combatvla-train}
+DATASETS=${DATASETS:-$BASE/datasets}
+OUT=${OUT:-$REPO/data/minecraft_full}
+
+mkdir -p "$BASE/logs"
+cd "$REPO"
+rm -rf "$OUT"
+mkdir -p "$OUT"
+
+"$ENV/bin/python" -m training.convert_tess_stage1 \
+  --data-dir "$DATASETS/tess_stage1" \
+  --output-root "$OUT" \
+  --train-count 100000000 \
+  --val-count 10000 \
+  --val-every 20 \
+  --max-frames 20 \
+  --task "Play Minecraft." \
+  --reference-parquet-frames
+
+wc -l "$OUT"/train_stage1.jsonl "$OUT"/val_stage1.jsonl
+ls -lh "$OUT"/train_stage1.jsonl "$OUT"/val_stage1.jsonl "$OUT"/tess_stage1_parquet_index.json
+

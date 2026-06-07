@@ -1,0 +1,52 @@
+﻿#!/bin/bash
+#PBS -N combatvla_convert_data
+#PBS -l select=1:ncpus=16:mem=96gb
+#PBS -l walltime=36:00:00
+#PBS -j oe
+#PBS -o logs/convert_all_datasets.log
+
+set -euo pipefail
+
+BASE=${BASE:-/path/to/combatvla-workspace}
+REPO=${REPO:-$BASE/src/CombatVLA}
+ENV=${ENV:-$BASE/envs/combatvla-train}
+DATASETS=${DATASETS:-$BASE/datasets}
+OUT=${OUT:-$REPO/data/minecraft_full}
+
+mkdir -p "$OUT" "$BASE/logs"
+cd "$REPO"
+
+"$ENV/bin/python" -m pip install -q -r requirements-training.txt
+
+# Stage1: full TESS Stage1. The converter emits 20-frame coarse action windows.
+"$ENV/bin/python" -m training.convert_tess_stage1 \
+  --data-dir "$DATASETS/tess_stage1" \
+  --output-root "$OUT" \
+  --train-count 100000000 \
+  --val-count 10000 \
+  --val-every 20 \
+  --max-frames 20 \
+  --task "Play Minecraft." \
+  --reference-parquet-frames
+
+# Stage2: full TESS Stage2. The converter emits 4-frame instruction/action windows.
+"$ENV/bin/python" -m training.convert_tess_stage2 \
+  --data-dir "$DATASETS/tess_stage2" \
+  --output-root "$OUT" \
+  --train-count 100000000 \
+  --val-count 10000 \
+  --max-frames 4
+
+# Stage3: Optimus-2-MGOA video/task/action with deterministic reasoning.
+"$ENV/bin/python" -m training.convert_optimus_mgoa_stage3 \
+  --root "$DATASETS/optimus2_mgoa" \
+  --output-root "$OUT" \
+  --train-count 100000000 \
+  --val-count 10000 \
+  --frame-stride 4 \
+  --max-window-frames 4 \
+  --skip-existing-frames
+
+du -sh "$OUT"
+wc -l "$OUT"/train_stage*.jsonl "$OUT"/val_stage*.jsonl
+
