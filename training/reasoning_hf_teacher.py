@@ -281,6 +281,8 @@ def main() -> None:
                         "message": str(exc),
                     }
                 ]
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             results: List[Dict[str, Any]] = []
             for item in batch:
                 try:
